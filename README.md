@@ -1,6 +1,6 @@
 # ComfyUI LG_HotReload 扩展
 
-一个用于 ComfyUI 的热重载扩展，让你在开发自定义节点/安装插件时能够实时预览更改，无需重启 ComfyUI。
+一个用于 ComfyUI 的热重载扩展，安装即可，让你在开发自定义节点/安装插件时能够实时预览更改，无需重启 ComfyUI。
 
 ## 主要特性
 
@@ -27,7 +27,7 @@
    ```
 
 3. 启动 ComfyUI
-4. 开始编辑你的自定义节点，保存后将自动重载,你只需要重置节点或者刷新网页即可
+4. 开始编辑你的自定义节点，保存后将自动重载,你只需要重置节点或者刷新网页即可（这个只是一个插件，没有实体节点，装了就不用管它，后台自动处理）
 
 ## 注意事项
 
@@ -35,6 +35,17 @@
 - 某些复杂的更改可能仍需要重启 ComfyUI
 - 确保你的代码没有语法错误，否则可能影响重载过程
 
+
+# 如果您受益于本项目，不妨请作者喝杯咖啡，您的支持是我最大的动力
+
+<div style="display: flex; justify-content: left; gap: 20px;">
+    <img src="https://raw.githubusercontent.com/LAOGOU-666/Comfyui-Transform/9ac1266765b53fb1d666f9c8a1d61212f2603a92/assets/alipay.jpg" width="300" alt="支付宝收款码">
+    <img src="https://raw.githubusercontent.com/LAOGOU-666/Comfyui-Transform/9ac1266765b53fb1d666f9c8a1d61212f2603a92/assets/wechat.jpg" width="300" alt="微信收款码">
+</div>
+
+
+
 ## 致谢
 
 本项目基于 [ComfyUI-HotReloadHack](https://github.com/logtd/ComfyUI-HotReloadHack) 进行了重构和增强。特别感谢原作者 [@logtd](https://github.com/logtd) 提供的优秀代码基础。 
+
