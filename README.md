@@ -11,14 +11,6 @@
 - 📁 支持web文件：自动同步节点的web目录内容
 - 🔍 路由热重载：支持API路由的实时更新
 
-## 环境变量配置
-
-可以通过以下环境变量自定义热重载行为：
-
-- `HOTRELOAD_EXCLUDE`: 排除不需要监控的模块，多个模块用逗号分隔
-- `HOTRELOAD_OBSERVE_ONLY`: 仅监控指定的模块，多个模块用逗号分隔
-- `HOTRELOAD_EXTENSIONS`: 监控的文件扩展名，默认为 `.py,.json,.yaml`
-- `HOTRELOAD_DEBOUNCE_TIME`: 重载延迟时间（秒），默认为 1.0
 
 ## 使用方法
 
