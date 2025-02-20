@@ -1,6 +1,6 @@
 # ComfyUI LG_HotReload 扩展
 
-一个用于 ComfyUI 的热重载扩展，让你在开发自定义节点时能够实时预览更改，无需重启 ComfyUI。
+一个用于 ComfyUI 的热重载扩展，让你在开发自定义节点/安装插件时能够实时预览更改，无需重启 ComfyUI。
 
 ## 主要特性
 
