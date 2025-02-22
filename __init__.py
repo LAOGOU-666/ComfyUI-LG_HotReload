@@ -291,13 +291,25 @@ class DebouncedHotReloader(FileSystemEventHandler):
             if self.__last_modified[module_name] != scheduled_time:
                 return
         try:
-            old_nodes = set(sys.modules.get(module_name, type('', (), {'NODE_CLASS_MAPPINGS': {}})()).NODE_CLASS_MAPPINGS.keys())
+            # 获取模块并检查 NODE_CLASS_MAPPINGS 是否存在
+            module = sys.modules.get(module_name)
+            if module is None or not hasattr(module, 'NODE_CLASS_MAPPINGS'):
+                old_nodes = set()  # 如果模块不存在或没有该属性，设置为一个空集合
+            else:
+                old_nodes = set(module.NODE_CLASS_MAPPINGS.keys())
+
             self.__reload(module_name)
-            new_nodes = set(sys.modules[module_name].NODE_CLASS_MAPPINGS.keys())
+
+            # 再次检查 NODE_CLASS_MAPPINGS 是否存在
+            new_nodes = set()
+            if hasattr(sys.modules[module_name], 'NODE_CLASS_MAPPINGS'):
+                new_nodes = set(sys.modules[module_name].NODE_CLASS_MAPPINGS.keys())
+
             added_nodes = new_nodes - old_nodes
             removed_nodes = old_nodes - new_nodes
             updated_nodes = new_nodes & old_nodes
             action = "deleted" if not os.path.exists(file_path) else "added" if file_path not in self.__hashes else "modified"
+            
             print(f'\033[92m[LG_HotReload] Reloaded module: {module_name}\033[0m')
             if added_nodes:
                 print(f'\033[92m[LG_HotReload] Added nodes: {added_nodes}\033[0m')
@@ -305,6 +317,8 @@ class DebouncedHotReloader(FileSystemEventHandler):
                 print(f'\033[92m[LG_HotReload] Removed nodes: {removed_nodes}\033[0m')
             if updated_nodes:
                 print(f'\033[92m[LG_HotReload] Updated nodes: {updated_nodes}\033[0m')
+
+            # 发送更新消息
             update_message = {
                 "type": "hot_reload_update",
                 "data": {
@@ -325,6 +339,8 @@ class DebouncedHotReloader(FileSystemEventHandler):
                     update_message["data"]
                 )
                 print(f'\033[92m[LG_HotReload] Sent update signal to frontend\033[0m')
+
+            # 处理 web 文件
             module_path = os.path.join(CUSTOM_NODE_ROOT[0], module_name)
             web_dir = os.path.join(module_path, WEB_DIRECTORY)
             if os.path.exists(web_dir) and os.path.isdir(web_dir):
