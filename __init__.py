@@ -173,35 +173,46 @@ class DebouncedHotReloader(FileSystemEventHandler):
         self.route_reloader = RouteReloader()
     def __reload(self, module_name: str) -> web.Response:
         """
-        Reloads all relevant modules and clears caches.
-        :param module_name: The name of the module to reload.
-        :return: A web response indicating success or failure.
+        重新加载模块及其所有子模块
+        :param module_name: 要重新加载的模块名称
+        :return: web.Response 表示成功或失败
         """
         with self.__lock:
             try:
                 self.route_reloader.reload_routes(module_name)
                 
-                # 删除旧模块
-                if module_name in sys.modules:
-                    del sys.modules[module_name]
+                # 获取模块路径
+                module_path = os.path.join(CUSTOM_NODE_ROOT[0], module_name)
                 
-                # 重新加载模块
-                module_path_init: str = os.path.join(CUSTOM_NODE_ROOT[0], module_name, '__init__.py')
+                # 收集需要重新加载的所有模块
+                modules_to_reload = set()
+                for name, module in list(sys.modules.items()):
+                    # 检查模块是否属于目标模块路径
+                    if hasattr(module, '__file__') and module.__file__ and \
+                       module.__file__.startswith(module_path):
+                        modules_to_reload.add(name)
+                
+                # 删除所有相关模块
+                for name in modules_to_reload:
+                    if name in sys.modules:
+                        del sys.modules[name]
+                
+                # 重新加载主模块
+                module_path_init = os.path.join(module_path, '__init__.py')
                 spec = importlib.util.spec_from_file_location(module_name, module_path_init)
                 module = importlib.util.module_from_spec(spec)
-                
                 sys.modules[module_name] = module
                 spec.loader.exec_module(module)
                 
-                # 直接更新所有节点类型
+                # 更新节点类型
                 for key in getattr(module, 'NODE_CLASS_MAPPINGS', {}).keys():
                     RELOADED_CLASS_TYPES[key] = 3
                 
                 # 重新加载自定义节点
-                module_path: str = os.path.join(CUSTOM_NODE_ROOT[0], module_name)
                 load_custom_node(module_path)
                 
-                print(f'\033[92m[LG_HotReload] Successfully reloaded all nodes in module: {module_name}\033[0m')
+                print(f'\033[92m[LG_HotReload] Successfully reloaded module and submodules: {module_name}\033[0m')
+                print(f'\033[92m[LG_HotReload] Reloaded modules: {modules_to_reload}\033[0m')
                 print(f'\033[92m[LG_HotReload] Loaded nodes: {list(getattr(module, "NODE_CLASS_MAPPINGS", {}).keys())}\033[0m')
                 
                 return web.Response(text='OK')
