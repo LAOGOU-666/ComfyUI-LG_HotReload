@@ -5,7 +5,7 @@ version = "1.0.0"
 dependencies = ["watchdog"]
 
 [project.urls]
-Repository = "https://github.com/LAOGOU-666/ComfyUI_LG_HotReload"
+Repository = "https://github.com/LAOGOU-666/ComfyUI-LG_HotReload"
 # Used by Comfy Registry https://comfyregistry.org
 
 [tool.comfy]
