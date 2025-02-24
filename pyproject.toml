@@ -1,0 +1,15 @@
+[project]
+name = "lg_hotreload"
+description = ""
+version = "1.0.0"
+license = {file = "LICENSE"}
+dependencies = ["watchdog"]
+
+[project.urls]
+Repository = "https://github.com/LAOGOU-666/ComfyUI-LG_HotReload"
+#  Used by Comfy Registry https://comfyregistry.org
+
+[tool.comfy]
+PublisherId = ""
+DisplayName = "ComfyUI-LG_HotReload"
+Icon = ""
