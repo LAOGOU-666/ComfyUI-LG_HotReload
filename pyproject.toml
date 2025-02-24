@@ -9,5 +9,5 @@ Repository = "https://github.com/LAOGOU-666/ComfyUI_LG_HotReload"
 # Used by Comfy Registry https://comfyregistry.org
 
 [tool.comfy]
-PublisherId = "LAOGOU-666" 
+PublisherId = "laogou666" 
 DisplayName = "ComfyUI_LG_HotReload"
