@@ -11,4 +11,3 @@ Repository = "https://github.com/LAOGOU-666/ComfyUI_LG_HotReload"
 [tool.comfy]
 PublisherId = "LAOGOU-666" 
 DisplayName = "ComfyUI_LG_HotReload"
-Icon = ""
