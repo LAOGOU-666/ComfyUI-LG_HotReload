@@ -20,11 +20,11 @@ from nodes import load_custom_node
 from comfy_execution import caching
 from server import PromptServer
 import json
-
+import nodes
+from pathlib import Path
 RELOADED_CLASS_TYPES: dict = {}
 CUSTOM_NODE_ROOT: list[str] = folder_paths.folder_names_and_paths["custom_nodes"][0]
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
-
 def load_exclude_modules() -> set[str]:
     """加载排除模块配置"""
     try:
@@ -33,8 +33,7 @@ def load_exclude_modules() -> set[str]:
             return set(config.get("exclude_modules", set()))
     except Exception as e:
         print(f"\033[91m[LG_HotReload] Error loading config: {str(e)}\033[0m")
-        return set()  # 如果读取失败，返回空集合
-
+        return set()
 def save_exclude_modules(modules: set[str]):
     """保存排除模块配置"""
     try:
@@ -43,15 +42,10 @@ def save_exclude_modules(modules: set[str]):
         print(f"\033[92m[LG_HotReload] Exclude modules config saved\033[0m")
     except Exception as e:
         print(f"\033[91m[LG_HotReload] Error saving config: {str(e)}\033[0m")
-
-# 初始化排除模块集合
 EXCLUDE_MODULES: set[str] = load_exclude_modules()
-
-# 添加API路由
 @PromptServer.instance.routes.get("/hotreload/get_exclude_modules")
 async def get_exclude_modules(request):
     return web.json_response({"exclude_modules": list(EXCLUDE_MODULES)})
-
 @PromptServer.instance.routes.post("/hotreload/update_exclude_modules")
 async def update_exclude_modules(request):
     try:
@@ -63,7 +57,6 @@ async def update_exclude_modules(request):
         return web.json_response({"status": "success"})
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=500)
-
 if (HOTRELOAD_EXCLUDE := os.getenv("HOTRELOAD_EXCLUDE", None)) is not None:
     EXCLUDE_MODULES.update(x for x in HOTRELOAD_EXCLUDE.split(',') if x)
 HOTRELOAD_OBSERVE_ONLY: set[str] = set(x for x in os.getenv("HOTRELOAD_OBSERVE_ONLY", '').split(',') if x)
@@ -131,73 +124,6 @@ def dfs(item_list: list, searches: set) -> bool:
         elif item in searches:
             return True
     return False
-class HotReloadRouteDecorator:
-    """热更新路由装饰器"""
-    def __init__(self, original_routes):
-        self.original_routes = original_routes
-        self.route_registry = {}
-    def _register_route(self, method):
-        def decorator(path):
-            def wrapper(handler):
-                original_handler = self.original_routes.__getattribute__(method)(path)(handler)
-                module_name = handler.__module__
-                route_key = f"{method.upper()}:{path}"
-                self.route_registry[route_key] = {
-                    'module': module_name,
-                    'handler_name': handler.__name__,
-                    'path': path,
-                    'method': method
-                }
-                return original_handler
-            return wrapper
-        return decorator
-    def __getattr__(self, name):
-        if name in ('get', 'post', 'put', 'delete', 'patch'):
-            return self._register_route(name)
-        return getattr(self.original_routes, name)
-    def __iter__(self):
-        """实现迭代器接口"""
-        return iter(self.original_routes)
-    def __len__(self):
-        """实现长度接口"""
-        return len(self.original_routes)
-    def __contains__(self, item):
-        return item in self.original_routes
-class RouteReloader:
-    """路由重载器"""
-    def __init__(self):
-        self.route_decorator = None
-        self.original_routes = None
-        self.setup_hot_reload()
-    def setup_hot_reload(self):
-        self.original_routes = PromptServer.instance.routes
-        self.route_decorator = HotReloadRouteDecorator(self.original_routes)
-        PromptServer.instance.routes = self.route_decorator
-    def reload_routes(self, module_name: str):
-        """重新加载指定模块的路由"""
-        try:
-            routes_to_reload = {
-                key: info for key, info in self.route_decorator.route_registry.items()
-                if info['module'] == module_name
-            }
-            if not routes_to_reload:
-                return
-            for route_info in routes_to_reload.values():
-                path = route_info['path']
-                method = route_info['method'].upper()
-                routes_to_remove = []
-                for resource in self.original_routes.app.router.resources():
-                    for route in resource:
-                        if route.method == method and route.resource.canonical == path:
-                            routes_to_remove.append(resource)
-                for resource in routes_to_remove:
-                    self.original_routes.app.router.resources().remove(resource)
-            module = sys.modules[module_name]
-            importlib.reload(module)
-            print(f'\033[92m[LG_HotReload] Reloaded routes for module: {module_name}\033[0m')
-        except Exception as e:
-            print(f'\033[91m[LG_HotReload] Failed to reload routes: {str(e)}\033[0m')
-            traceback.print_exc()
 class DebouncedHotReloader(FileSystemEventHandler):
     """Hot reloader with debouncing mechanism to reload modules on file changes."""
     def __init__(self, delay: float = 1.0):
@@ -211,53 +137,87 @@ class DebouncedHotReloader(FileSystemEventHandler):
         self.__reload_timers: dict[str, threading.Timer] = {}
         self.__hashes: dict[str, str] = {}
         self.__lock: threading.Lock = threading.Lock()
-        self.route_reloader = RouteReloader()
     def __reload(self, module_name: str) -> web.Response:
-        """
-        重新加载模块及其所有子模块
-        :param module_name: 要重新加载的模块名称
-        :return: web.Response 表示成功或失败
-        """
         with self.__lock:
             try:
-                self.route_reloader.reload_routes(module_name)
-                
-                # 获取模块路径
+                print(f'\n\033[94m[LG_HotReload] 开始重载模块: {module_name}\033[0m')
+                original_routes = {}
+                routes = PromptServer.instance.routes
+                for route in routes._items:
+                    handler = route.handler
+                    handler_module = handler.__module__ if hasattr(handler, '__module__') else None
+                    if handler_module == module_name:
+                        method = route.method
+                        if method not in original_routes:
+                            original_routes[method] = {}
+                        route_path = route.path
+                        original_routes[method][route_path] = {
+                            'handler': handler,
+                            'handler_name': handler.__name__,
+                            'path': route_path,
+                        }
+                routes = PromptServer.instance.routes
+                routes._items = [route for route in routes._items
+                               if not (hasattr(route.handler, '__module__')
+                                     and route.handler.__module__ == module_name)]
                 module_path = os.path.join(CUSTOM_NODE_ROOT[0], module_name)
-                
-                # 收集需要重新加载的所有模块
-                modules_to_reload = set()
-                for name, module in list(sys.modules.items()):
-                    # 检查模块是否属于目标模块路径
-                    if hasattr(module, '__file__') and module.__file__ and \
-                       module.__file__.startswith(module_path):
-                        modules_to_reload.add(name)
-                
-                # 删除所有相关模块
-                for name in modules_to_reload:
-                    if name in sys.modules:
-                        del sys.modules[name]
-                
-                # 重新加载主模块
                 module_path_init = os.path.join(module_path, '__init__.py')
-                spec = importlib.util.spec_from_file_location(module_name, module_path_init)
-                module = importlib.util.module_from_spec(spec)
-                sys.modules[module_name] = module
-                spec.loader.exec_module(module)
-                
-                # 更新节点类型
+                original_routes = list(routes._items)
+                try:
+                    routes._items = []
+                    spec = importlib.util.spec_from_file_location(module_name, module_path_init)
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules[module_name] = module
+                    app = PromptServer.instance.app
+                    old_router = app.router
+                    new_router = web.UrlDispatcher()
+                    spec.loader.exec_module(module)
+                    new_routes = [route for route in routes._items]
+                    routes._items = original_routes
+                    for route in new_routes:
+                        if route not in routes._items:
+                            routes._items.append(route)
+                    for route in routes._items:
+                        if isinstance(route, web.RouteDef):
+                            method = route.method.lower()
+                            path = f"/api{route.path}"
+                            try:
+                                new_router.add_route(method, path, route.handler)
+                                new_router.add_route(method, route.path, route.handler)
+                            except Exception as route_error:
+                                print(f'\033[93m[LG_HotReload] 注册路由失败: {route_error}\033[0m')
+                    try:
+                        for name, dir in nodes.EXTENSION_WEB_DIRS.items():
+                            new_router.add_static('/extensions/' + name, dir)
+                        custom_nodes_dir = Path(CUSTOM_NODE_ROOT[0])
+                        kjweb_path = custom_nodes_dir / "comfyui-kjnodes" / "kjweb_async"
+                        if kjweb_path.exists():
+                            new_router.add_static('/kjweb_async', kjweb_path.as_posix())
+                        new_router.add_static('/', PromptServer.instance.web_root)
+                    except Exception as e:
+                        print(f'\033[93m[LG_HotReload] 添加静态路由失败: {e}\033[0m')
+                    app._router = new_router
+                except Exception as e:
+                    routes._items = original_routes
+                    app._router = old_router
+                    raise e
+                registered_routes = []
+                for route in routes._items:
+                    if hasattr(route.handler, '__module__') and route.handler.__module__ == module_name:
+                        registered_routes.append({
+                            'method': route.method,
+                            'path': route.path,
+                            'api_path': f'/api{route.path}',
+                            'handler': route.handler.__name__
+                        })
                 for key in getattr(module, 'NODE_CLASS_MAPPINGS', {}).keys():
                     RELOADED_CLASS_TYPES[key] = 3
-                
-                # 重新加载自定义节点
                 load_custom_node(module_path)
-                
-                print(f'\033[92m[LG_HotReload] Successfully reloaded module and submodules: {module_name}\033[0m')
-                print(f'\033[92m[LG_HotReload] Reloaded modules: {modules_to_reload}\033[0m')
+                print(f'\033[92m[LG_HotReload] Successfully reloaded module: {module_name}\033[0m')
+                if registered_routes:
+                    print(f'\033[92m[LG_HotReload] Registered routes: {len(registered_routes)}\033[0m')
                 print(f'\033[92m[LG_HotReload] Loaded nodes: {list(getattr(module, "NODE_CLASS_MAPPINGS", {}).keys())}\033[0m')
-                
                 return web.Response(text='OK')
-                
             except Exception as e:
                 logging.error(f"Failed to reload module {module_name}: {e}")
                 traceback.print_exc()
@@ -343,35 +303,82 @@ class DebouncedHotReloader(FileSystemEventHandler):
             if self.__last_modified[module_name] != scheduled_time:
                 return
         try:
-            # 获取模块并检查 NODE_CLASS_MAPPINGS 是否存在
-            module = sys.modules.get(module_name)
-            if module is None or not hasattr(module, 'NODE_CLASS_MAPPINGS'):
-                old_nodes = set()
-            else:
-                old_nodes = set(module.NODE_CLASS_MAPPINGS.keys())
-
+            module_file = os.path.join(CUSTOM_NODE_ROOT[0], module_name, '__init__.py')
+            with open(module_file, 'r', encoding='utf-8') as f:
+                source_code = f.read()
+            old_routes = []
+            seen_routes = set()
+            for route in PromptServer.instance.routes._items:
+                if hasattr(route.handler, '__module__') and route.handler.__module__ == module_name:
+                    route_key = f"{route.method}:{route.path}:{route.handler.__name__}"
+                    if route_key not in seen_routes:
+                        seen_routes.add(route_key)
+                        handler_name = route.handler.__name__
+                        lines = source_code.split('\n')
+                        route_definition = []
+                        for i, line in enumerate(lines):
+                            if handler_name in line and 'def' in line:
+                                j = i - 1
+                                while j >= 0 and '@' in lines[j]:
+                                    route_definition.insert(0, lines[j].strip())
+                                    j -= 1
+                                route_definition.append(lines[i].strip())
+                                break
+                        route_info = {
+                            'method': route.method,
+                            'path': route.path,
+                            'api_path': f"/api{route.path}",
+                            'handler': handler_name,
+                            'definition': route_definition,
+                            'module': route.handler.__module__
+                        }
+                        old_routes.append(route_info)
             self.__reload(module_name)
-
-            # 再次检查 NODE_CLASS_MAPPINGS 是否存在
+            with open(module_file, 'r', encoding='utf-8') as f:
+                source_code = f.read()
+            new_routes = []
+            seen_routes.clear()
+            for route in PromptServer.instance.routes._items:
+                if hasattr(route.handler, '__module__') and route.handler.__module__ == module_name:
+                    route_key = f"{route.method}:{route.path}:{route.handler.__name__}"
+                    if route_key not in seen_routes:
+                        seen_routes.add(route_key)
+                        handler_name = route.handler.__name__
+                        lines = source_code.split('\n')
+                        route_definition = []
+                        for i, line in enumerate(lines):
+                            if handler_name in line and 'def' in line:
+                                j = i - 1
+                                while j >= 0 and '@' in lines[j]:
+                                    route_definition.insert(0, lines[j].strip())
+                                    j -= 1
+                                route_definition.append(lines[i].strip())
+                                break
+                        route_info = {
+                            'method': route.method,
+                            'path': route.path,
+                            'api_path': f"/api{route.path}",
+                            'handler': handler_name,
+                            'definition': route_definition,
+                            'module': route.handler.__module__
+                        }
+                        new_routes.append(route_info)
             new_nodes = set()
-            module = sys.modules.get(module_name)  # 重新获取重载后的模块
+            module = sys.modules.get(module_name)
             if hasattr(module, 'NODE_CLASS_MAPPINGS'):
                 new_nodes = set(module.NODE_CLASS_MAPPINGS.keys())
-
-            added_nodes = new_nodes - old_nodes
-            removed_nodes = old_nodes - new_nodes
-            updated_nodes = new_nodes & old_nodes
+            added_nodes = new_nodes - set(route['handler'] for route in old_routes)
+            removed_nodes = set(route['handler'] for route in old_routes) - new_nodes
+            updated_nodes = new_nodes & set(route['handler'] for route in old_routes)
             action = "deleted" if not os.path.exists(file_path) else "added" if file_path not in self.__hashes else "modified"
-            
             print(f'\033[92m[LG_HotReload] Reloaded module: {module_name}\033[0m')
-            if added_nodes:
-                print(f'\033[92m[LG_HotReload] Added nodes: {added_nodes}\033[0m')
-            if removed_nodes:
-                print(f'\033[92m[LG_HotReload] Removed nodes: {removed_nodes}\033[0m')
-            if updated_nodes:
-                print(f'\033[92m[LG_HotReload] Updated nodes: {updated_nodes}\033[0m')
-
-            # 发送更新消息
+            if added_nodes or removed_nodes or updated_nodes:
+                if added_nodes:
+                    print(f'\033[92m[LG_HotReload] Added nodes: {added_nodes}\033[0m')
+                if removed_nodes:
+                    print(f'\033[92m[LG_HotReload] Removed nodes: {removed_nodes}\033[0m')
+                if updated_nodes:
+                    print(f'\033[92m[LG_HotReload] Updated nodes: {updated_nodes}\033[0m')
             update_message = {
                 "type": "hot_reload_update",
                 "data": {
@@ -383,6 +390,10 @@ class DebouncedHotReloader(FileSystemEventHandler):
                         "added": list(added_nodes),
                         "removed": list(removed_nodes),
                         "updated": list(updated_nodes)
+                    },
+                    "routes": {
+                        "old": old_routes,
+                        "new": new_routes
                     }
                 }
             }
@@ -391,18 +402,11 @@ class DebouncedHotReloader(FileSystemEventHandler):
                     "hot_reload_update",
                     update_message["data"]
                 )
-                print(f'\033[92m[LG_HotReload] Sent update signal to frontend\033[0m')
-
-            # 处理 web 文件 - 独立于节点映射的检查
             module_path = os.path.join(CUSTOM_NODE_ROOT[0], module_name)
-            if module and hasattr(module, 'WEB_DIRECTORY'):  # 只检查WEB_DIRECTORY
+            if module and hasattr(module, 'WEB_DIRECTORY'):
                 web_dir = os.path.join(module_path, module.WEB_DIRECTORY)
                 if os.path.exists(web_dir) and os.path.isdir(web_dir):
                     self.copy_web_files(module_name, web_dir)
-                    print(f'\033[92m[LG_HotReload] Updated web files for {module_name}\033[0m')
-                else:
-                    print(f'\033[93m[LG_HotReload] Web directory not found: {web_dir}\033[0m')
-
         except requests.RequestException as e:
             print(f'\033[91m[LG_HotReload] Reload failed: {e}\033[0m')
         except Exception as e:
@@ -463,15 +467,10 @@ def cleanup_extensions_directory():
         extensions_dir = os.path.join(web_root, "extensions")
         if not os.path.exists(extensions_dir):
             return
-        
-        # 获取custom_nodes中的文件夹名称
         custom_nodes_path = CUSTOM_NODE_ROOT[0]
         custom_node_folders = set(os.listdir(custom_nodes_path))
-        
-        # 检查并清理extensions目录
         for item in os.listdir(extensions_dir):
             item_path = os.path.join(extensions_dir, item)
-            # 如果extensions中的文件夹名与custom_nodes中的文件夹名相同，就删除
             if os.path.isdir(item_path) and item in custom_node_folders:
                 try:
                     import shutil
