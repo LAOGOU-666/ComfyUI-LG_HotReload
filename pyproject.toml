@@ -10,4 +10,4 @@ Repository = "https://github.com/LAOGOU-666/ComfyUI-LG_HotReload"
 
 [tool.comfy]
 PublisherId = "laogou666" 
-DisplayName = "ComfyUI_LG_HotReload"
+DisplayName = "ComfyUI-LG_HotReload"
