@@ -5,6 +5,8 @@
 
 An extension for ComfyUI that allows hot reloading. Once installed, you can preview changes in real-time while developing custom nodes or installing plugins without restarting ComfyUI.
 
+![Image](setting.png)
+
 ## Main Features
 
 - 🔄 Real-time hot reloading: Automatically reload nodes after modifying code

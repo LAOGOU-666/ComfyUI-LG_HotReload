@@ -1,0 +1,7 @@
+{
+    "exclude_modules": [
+        "ComfyUI-LG_HotReload",
+        "ComfyUI_Custom_Nodes_AlekPet",
+        "ComfyUI-Manager"
+    ]
+}

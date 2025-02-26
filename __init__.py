@@ -19,10 +19,51 @@ import folder_paths
 from nodes import load_custom_node
 from comfy_execution import caching
 from server import PromptServer
+import json
+
 RELOADED_CLASS_TYPES: dict = {}
 CUSTOM_NODE_ROOT: list[str] = folder_paths.folder_names_and_paths["custom_nodes"][0]
-WEB_DIRECTORY = "web"
-EXCLUDE_MODULES: set[str] = {'ComfyUI-Manager', 'LG_HotReload'}
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
+
+def load_exclude_modules() -> set[str]:
+    """加载排除模块配置"""
+    try:
+        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+            return set(config.get("exclude_modules", set()))
+    except Exception as e:
+        print(f"\033[91m[LG_HotReload] Error loading config: {str(e)}\033[0m")
+        return set()  # 如果读取失败，返回空集合
+
+def save_exclude_modules(modules: set[str]):
+    """保存排除模块配置"""
+    try:
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump({"exclude_modules": list(modules)}, f, indent=4)
+        print(f"\033[92m[LG_HotReload] Exclude modules config saved\033[0m")
+    except Exception as e:
+        print(f"\033[91m[LG_HotReload] Error saving config: {str(e)}\033[0m")
+
+# 初始化排除模块集合
+EXCLUDE_MODULES: set[str] = load_exclude_modules()
+
+# 添加API路由
+@PromptServer.instance.routes.get("/hotreload/get_exclude_modules")
+async def get_exclude_modules(request):
+    return web.json_response({"exclude_modules": list(EXCLUDE_MODULES)})
+
+@PromptServer.instance.routes.post("/hotreload/update_exclude_modules")
+async def update_exclude_modules(request):
+    try:
+        data = await request.json()
+        modules = set(data.get("exclude_modules", []))
+        global EXCLUDE_MODULES
+        EXCLUDE_MODULES = modules
+        save_exclude_modules(modules)
+        return web.json_response({"status": "success"})
+    except Exception as e:
+        return web.json_response({"status": "error", "message": str(e)}, status=500)
+
 if (HOTRELOAD_EXCLUDE := os.getenv("HOTRELOAD_EXCLUDE", None)) is not None:
     EXCLUDE_MODULES.update(x for x in HOTRELOAD_EXCLUDE.split(',') if x)
 HOTRELOAD_OBSERVE_ONLY: set[str] = set(x for x in os.getenv("HOTRELOAD_OBSERVE_ONLY", '').split(',') if x)
@@ -305,7 +346,7 @@ class DebouncedHotReloader(FileSystemEventHandler):
             # 获取模块并检查 NODE_CLASS_MAPPINGS 是否存在
             module = sys.modules.get(module_name)
             if module is None or not hasattr(module, 'NODE_CLASS_MAPPINGS'):
-                old_nodes = set()  # 如果模块不存在或没有该属性，设置为一个空集合
+                old_nodes = set()
             else:
                 old_nodes = set(module.NODE_CLASS_MAPPINGS.keys())
 
@@ -313,8 +354,9 @@ class DebouncedHotReloader(FileSystemEventHandler):
 
             # 再次检查 NODE_CLASS_MAPPINGS 是否存在
             new_nodes = set()
-            if hasattr(sys.modules[module_name], 'NODE_CLASS_MAPPINGS'):
-                new_nodes = set(sys.modules[module_name].NODE_CLASS_MAPPINGS.keys())
+            module = sys.modules.get(module_name)  # 重新获取重载后的模块
+            if hasattr(module, 'NODE_CLASS_MAPPINGS'):
+                new_nodes = set(module.NODE_CLASS_MAPPINGS.keys())
 
             added_nodes = new_nodes - old_nodes
             removed_nodes = old_nodes - new_nodes
@@ -351,12 +393,16 @@ class DebouncedHotReloader(FileSystemEventHandler):
                 )
                 print(f'\033[92m[LG_HotReload] Sent update signal to frontend\033[0m')
 
-            # 处理 web 文件
+            # 处理 web 文件 - 独立于节点映射的检查
             module_path = os.path.join(CUSTOM_NODE_ROOT[0], module_name)
-            web_dir = os.path.join(module_path, WEB_DIRECTORY)
-            if os.path.exists(web_dir) and os.path.isdir(web_dir):
-                self.copy_web_files(module_name, web_dir)
-                print(f'\033[92m[LG_HotReload] Updated web files for {module_name}\033[0m')
+            if module and hasattr(module, 'WEB_DIRECTORY'):  # 只检查WEB_DIRECTORY
+                web_dir = os.path.join(module_path, module.WEB_DIRECTORY)
+                if os.path.exists(web_dir) and os.path.isdir(web_dir):
+                    self.copy_web_files(module_name, web_dir)
+                    print(f'\033[92m[LG_HotReload] Updated web files for {module_name}\033[0m')
+                else:
+                    print(f'\033[93m[LG_HotReload] Web directory not found: {web_dir}\033[0m')
+
         except requests.RequestException as e:
             print(f'\033[91m[LG_HotReload] Reload failed: {e}\033[0m')
         except Exception as e:
@@ -417,16 +463,16 @@ def cleanup_extensions_directory():
         extensions_dir = os.path.join(web_root, "extensions")
         if not os.path.exists(extensions_dir):
             return
+        
+        # 获取custom_nodes中的文件夹名称
         custom_nodes_path = CUSTOM_NODE_ROOT[0]
-        web_modules = set()
-        for module_name in os.listdir(custom_nodes_path):
-            module_path = os.path.join(custom_nodes_path, module_name)
-            web_dir = os.path.join(module_path, WEB_DIRECTORY)
-            if os.path.exists(web_dir) and os.path.isdir(web_dir):
-                web_modules.add(module_name)
+        custom_node_folders = set(os.listdir(custom_nodes_path))
+        
+        # 检查并清理extensions目录
         for item in os.listdir(extensions_dir):
             item_path = os.path.join(extensions_dir, item)
-            if os.path.isdir(item_path) and item in web_modules:
+            # 如果extensions中的文件夹名与custom_nodes中的文件夹名相同，就删除
+            if os.path.isdir(item_path) and item in custom_node_folders:
                 try:
                     import shutil
                     shutil.rmtree(item_path)
@@ -445,5 +491,6 @@ def setup():
     atexit.register(hot_reloader_service.stop)
     hot_reloader_service.start()
 setup()
+WEB_DIRECTORY = "./web"
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
