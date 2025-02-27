@@ -21,12 +21,12 @@ An extension for ComfyUI that allows hot reloading. Once installed, you can prev
 1. Clone the repository to the `custom_nodes` directory of ComfyUI:
    ```bash
    cd path/to/ComfyUI/custom_nodes
-   git clone https://github.com/LAOGOU-666/ComfyUI-LG-HotReload.git
+   git clone https://github.com/LAOGOU-666/ComfyUI-LG_HotReload.git
    ```
 
 2. Install dependencies:
    ```
-   cd ComfyUI-LG-HotReload
+   cd ComfyUI-LG_HotReload
    pip install -r requirements.txt
    ```
 

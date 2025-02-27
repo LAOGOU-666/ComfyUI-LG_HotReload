@@ -27,7 +27,7 @@
 
 2. 安装依赖：
    ```
-   cd ComfyUI-LG-HotReload
+   cd ComfyUI-LG_HotReload
    pip install -r requirements.txt
    ```
 
