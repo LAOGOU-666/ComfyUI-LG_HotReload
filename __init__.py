@@ -467,11 +467,17 @@ def cleanup_extensions_directory():
         extensions_dir = os.path.join(web_root, "extensions")
         if not os.path.exists(extensions_dir):
             return
+        
         custom_nodes_path = CUSTOM_NODE_ROOT[0]
         custom_node_folders = set(os.listdir(custom_nodes_path))
+        
+        # 排除需要忽略的模块
+        folders_to_clean = custom_node_folders - EXCLUDE_MODULES
+        
         for item in os.listdir(extensions_dir):
             item_path = os.path.join(extensions_dir, item)
-            if os.path.isdir(item_path) and item in custom_node_folders:
+            # 只清理非排除且存在于自定义节点目录的文件夹
+            if os.path.isdir(item_path) and item in folders_to_clean:
                 try:
                     import shutil
                     shutil.rmtree(item_path)
