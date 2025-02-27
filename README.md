@@ -22,7 +22,7 @@
 1. 克隆仓库到 ComfyUI 的 `custom_nodes` 目录：
    ```bash
    cd path/to/ComfyUI/custom_nodes
-   git clone https://github.com/LAOGOU-666/ComfyUI-LG-HotReload.git
+   git clone https://github.com/LAOGOU-666/ComfyUI-LG_HotReload.git
    ```
 
 2. 安装依赖：
