@@ -141,6 +141,8 @@ class DebouncedHotReloader(FileSystemEventHandler):
         with self.__lock:
             try:
                 print(f'\n\033[94m[LG_HotReload] 开始重载模块: {module_name}\033[0m')
+                
+                # 保存原有路由信息
                 original_routes = {}
                 routes = PromptServer.instance.routes
                 for route in routes._items:
@@ -156,27 +158,60 @@ class DebouncedHotReloader(FileSystemEventHandler):
                             'handler_name': handler.__name__,
                             'path': route_path,
                         }
+
+                # 从 PromptServer.routes 移除旧路由
                 routes = PromptServer.instance.routes
                 routes._items = [route for route in routes._items
                                if not (hasattr(route.handler, '__module__')
                                      and route.handler.__module__ == module_name)]
+                
                 module_path = os.path.join(CUSTOM_NODE_ROOT[0], module_name)
                 module_path_init = os.path.join(module_path, '__init__.py')
+                
+                # 保存原始路由
                 original_routes = list(routes._items)
+                
                 try:
+                    # 收集需要重新加载的所有模块
+                    modules_to_reload = set()
+                    for name, module in list(sys.modules.items()):
+                        if hasattr(module, '__file__') and module.__file__ and \
+                           module.__file__.startswith(module_path):
+                            modules_to_reload.add(name)
+                    
+                    # 删除所有相关模块
+                    for name in modules_to_reload:
+                        if name in sys.modules:
+                            del sys.modules[name]
+                    
+                    # 清空现有路由
                     routes._items = []
+                    
+                    # 重新加载主模块
                     spec = importlib.util.spec_from_file_location(module_name, module_path_init)
                     module = importlib.util.module_from_spec(spec)
                     sys.modules[module_name] = module
+                    
+                    # 保存当前路由器
                     app = PromptServer.instance.app
                     old_router = app.router
                     new_router = web.UrlDispatcher()
+                    
+                    # 执行模块加载
                     spec.loader.exec_module(module)
+                    
+                    # 获取新注册的路由
                     new_routes = [route for route in routes._items]
+                    
+                    # 恢复原始路由
                     routes._items = original_routes
+                    
+                    # 添加新路由
                     for route in new_routes:
                         if route not in routes._items:
                             routes._items.append(route)
+                    
+                    # 重新注册所有动态路由
                     for route in routes._items:
                         if isinstance(route, web.RouteDef):
                             method = route.method.lower()
@@ -186,6 +221,8 @@ class DebouncedHotReloader(FileSystemEventHandler):
                                 new_router.add_route(method, route.path, route.handler)
                             except Exception as route_error:
                                 print(f'\033[93m[LG_HotReload] 注册路由失败: {route_error}\033[0m')
+                    
+                    # 添加所有静态路由
                     try:
                         for name, dir in nodes.EXTENSION_WEB_DIRS.items():
                             new_router.add_static('/extensions/' + name, dir)
@@ -196,11 +233,17 @@ class DebouncedHotReloader(FileSystemEventHandler):
                         new_router.add_static('/', PromptServer.instance.web_root)
                     except Exception as e:
                         print(f'\033[93m[LG_HotReload] 添加静态路由失败: {e}\033[0m')
+                    
+                    # 更新路由器
                     app._router = new_router
+                    
                 except Exception as e:
+                    # 确保在出错时恢复原始路由
                     routes._items = original_routes
                     app._router = old_router
                     raise e
+
+                # 验证路由注册情况
                 registered_routes = []
                 for route in routes._items:
                     if hasattr(route.handler, '__module__') and route.handler.__module__ == module_name:
@@ -210,14 +253,21 @@ class DebouncedHotReloader(FileSystemEventHandler):
                             'api_path': f'/api{route.path}',
                             'handler': route.handler.__name__
                         })
+
+                # 更新节点类型
                 for key in getattr(module, 'NODE_CLASS_MAPPINGS', {}).keys():
                     RELOADED_CLASS_TYPES[key] = 3
+                
+                # 重新加载自定义节点
                 load_custom_node(module_path)
+                
                 print(f'\033[92m[LG_HotReload] Successfully reloaded module: {module_name}\033[0m')
                 if registered_routes:
                     print(f'\033[92m[LG_HotReload] Registered routes: {len(registered_routes)}\033[0m')
                 print(f'\033[92m[LG_HotReload] Loaded nodes: {list(getattr(module, "NODE_CLASS_MAPPINGS", {}).keys())}\033[0m')
+                
                 return web.Response(text='OK')
+                
             except Exception as e:
                 logging.error(f"Failed to reload module {module_name}: {e}")
                 traceback.print_exc()
