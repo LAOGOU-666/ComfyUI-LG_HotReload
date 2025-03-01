@@ -23,26 +23,12 @@ app.registerExtension({
                                     acc[w.name] = w.serializeValue ? w.serializeValue() : w.value;
                                     return acc;
                                 }, {}),
-                                properties: {...node.properties},
-                                inputs: node.inputs?.map(i => ({...i})),
-                                outputs: node.outputs?.map(o => ({...o})),
-                                connections: {
-                                    inputs: node.inputs?.map((input, slot) =>
-                                        input.link != null ? {
-                                            slot,
-                                            target_id: app.graph.links[input.link].origin_id,
-                                            target_slot: app.graph.links[input.link].origin_slot
-                                        } : null).filter(x => x),
-                                    outputs: node.outputs?.map((output, slot) =>
-                                        output.links?.map(link => ({
-                                            slot,
-                                            target_id: app.graph.links[link].target_id,
-                                            target_slot: app.graph.links[link].target_slot
-                                        }))).flat().filter(x => x)
-                                }
+                                properties: {...node.properties}
                             });
                         });
                     }
+                    
+                    // 更新节点定义
                     for (const nodeClass of nodesToUpdate) {
                         const response = await api.fetchApi(`/object_info/${nodeClass}`);
                         const nodeData = await response.json();
@@ -62,6 +48,8 @@ app.registerExtension({
                             });
                         }
                     }
+
+                    // 恢复节点状态，但不处理连接
                     for (const state of savedStates.values()) {
                         const node = app.graph.getNodeById(state.id);
                         if (node) {
@@ -79,18 +67,6 @@ app.registerExtension({
                                     }
                                 });
                             }
-                            state.connections.inputs.forEach(conn => {
-                                const targetNode = app.graph.getNodeById(conn.target_id);
-                                if (targetNode) {
-                                    node.connect(conn.slot, targetNode, conn.target_slot);
-                                }
-                            });
-                            state.connections.outputs.forEach(conn => {
-                                const targetNode = app.graph.getNodeById(conn.target_id);
-                                if (targetNode) {
-                                    node.connect(conn.slot, targetNode, conn.target_slot);
-                                }
-                            });
                         }
                     }
                     app.graph.setDirtyCanvas(true);

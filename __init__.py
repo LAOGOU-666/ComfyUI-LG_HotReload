@@ -260,12 +260,7 @@ class DebouncedHotReloader(FileSystemEventHandler):
                 
                 # 重新加载自定义节点
                 load_custom_node(module_path)
-                
-                print(f'\033[92m[LG_HotReload] Successfully reloaded module: {module_name}\033[0m')
-                if registered_routes:
-                    print(f'\033[92m[LG_HotReload] Registered routes: {len(registered_routes)}\033[0m')
-                print(f'\033[92m[LG_HotReload] Loaded nodes: {list(getattr(module, "NODE_CLASS_MAPPINGS", {}).keys())}\033[0m')
-                
+
                 return web.Response(text='OK')
                 
             except Exception as e:
@@ -421,14 +416,7 @@ class DebouncedHotReloader(FileSystemEventHandler):
             removed_nodes = set(route['handler'] for route in old_routes) - new_nodes
             updated_nodes = new_nodes & set(route['handler'] for route in old_routes)
             action = "deleted" if not os.path.exists(file_path) else "added" if file_path not in self.__hashes else "modified"
-            print(f'\033[92m[LG_HotReload] Reloaded module: {module_name}\033[0m')
-            if added_nodes or removed_nodes or updated_nodes:
-                if added_nodes:
-                    print(f'\033[92m[LG_HotReload] Added nodes: {added_nodes}\033[0m')
-                if removed_nodes:
-                    print(f'\033[92m[LG_HotReload] Removed nodes: {removed_nodes}\033[0m')
-                if updated_nodes:
-                    print(f'\033[92m[LG_HotReload] Updated nodes: {updated_nodes}\033[0m')
+
             update_message = {
                 "type": "hot_reload_update",
                 "data": {
@@ -457,6 +445,8 @@ class DebouncedHotReloader(FileSystemEventHandler):
                 web_dir = os.path.join(module_path, module.WEB_DIRECTORY)
                 if os.path.exists(web_dir) and os.path.isdir(web_dir):
                     self.copy_web_files(module_name, web_dir)
+
+                print(f'\033[92m[LG_HotReload] Successfully reloaded module: {module_name}\033[0m')
         except requests.RequestException as e:
             print(f'\033[91m[LG_HotReload] Reload failed: {e}\033[0m')
         except Exception as e:
