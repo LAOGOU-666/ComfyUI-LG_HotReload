@@ -16,6 +16,15 @@ An extension for ComfyUI that allows hot reloading. Once installed, you can prev
 - 📁 Support for web files: Automatically sync the web directory content of nodes
 - 🔍 Route hot reloading: Support real-time updates for API routes
 
+## New Features
+
+- Added exclude module configuration for hot reload, allowing you to configure which modules to exclude from hot reloading. Here's how to use it:
+  1. Click the settings button
+  2. Find the HotReload option
+  3. Click to open configuration
+  4. Enter the module name to exclude in the input box (custom node folder name, you can also check the console to get it)
+  5. Click add to exclude the specified module from hot reloading
+
 ## Usage
 
 1. Clone the repository to the `custom_nodes` directory of ComfyUI:
