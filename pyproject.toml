@@ -1,7 +1,7 @@
 [project]
 name = "comfyui_lg_hotreload"
 description = "An extension for ComfyUI that allows hot reloading. Once installed, you can preview changes in real-time while developing custom nodes or installing plugins without restarting ComfyUI."
-version = "1.3.2"
+version = "1.3.3"
 license = { file = "LICENSE.txt" }
 dependencies = ["watchdog"]
 
@@ -10,5 +10,5 @@ Repository = "https://github.com/LAOGOU-666/ComfyUI-LG_HotReload"
 # Used by Comfy Registry https://comfyregistry.org
 
 [tool.comfy]
-PublisherId = "laogou666" 
+PublisherId = "LAOGOU-666" 
 DisplayName = "ComfyUI-LG_HotReload"
