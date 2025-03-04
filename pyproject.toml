@@ -1,7 +1,7 @@
 [project]
 name = "comfyui_lg_hotreload"
 description = "An extension for ComfyUI that allows hot reloading. Once installed, you can preview changes in real-time while developing custom nodes or installing plugins without restarting ComfyUI."
-version = "1.4.0"
+version = "1.4.1"
 dependencies = ["watchdog"]
 
 [project.urls]
