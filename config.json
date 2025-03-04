@@ -1,7 +1,21 @@
 {
     "exclude_modules": [
+        "ComfyUI-Manager",
+        "ComfyUI-Crystools",
+        "test",
+        "frontend.disabled",
+        "Comfyui-Transform.disabled",
+        "ComfyUI-Depth-Pro",
+        "comfyui-kjnodes",
+        "backend",
+        "Inspyrenet",
         "ComfyUI-LG_HotReload",
+        "rgthree-comfy",
+        "Comfyui-LG_Relight",
+        "comfyui_layerstyle",
+        "ComfyUI-Depth-Anything-Tensorrt",
+        "Comfyui_LG_Advertisement",
         "ComfyUI_Custom_Nodes_AlekPet",
-        "ComfyUI-Manager"
+        "LG_Node"
     ]
 }

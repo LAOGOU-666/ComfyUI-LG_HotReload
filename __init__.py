@@ -57,6 +57,20 @@ async def update_exclude_modules(request):
         return web.json_response({"status": "success"})
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=500)
+    
+@PromptServer.instance.routes.get("/hotreload/get_all_modules")
+async def get_all_modules(request):
+    try:
+        modules = []
+        for item in os.listdir(CUSTOM_NODE_ROOT[0]):
+            item_path = os.path.join(CUSTOM_NODE_ROOT[0], item)
+            if os.path.isdir(item_path) and not item.startswith('.'):
+                if os.path.exists(os.path.join(item_path, '__init__.py')):
+                    modules.append(item)
+        return web.json_response({"modules": modules})
+    except Exception as e:
+        return web.json_response({"status": "error", "message": str(e)}, status=500)
+
 if (HOTRELOAD_EXCLUDE := os.getenv("HOTRELOAD_EXCLUDE", None)) is not None:
     EXCLUDE_MODULES.update(x for x in HOTRELOAD_EXCLUDE.split(',') if x)
 HOTRELOAD_OBSERVE_ONLY: set[str] = set(x for x in os.getenv("HOTRELOAD_OBSERVE_ONLY", '').split(',') if x)
@@ -137,6 +151,9 @@ class DebouncedHotReloader(FileSystemEventHandler):
         self.__reload_timers: dict[str, threading.Timer] = {}
         self.__hashes: dict[str, str] = {}
         self.__lock: threading.Lock = threading.Lock()
+        # 添加最后成功重载时间记录
+        self.__last_successful_reload: defaultdict[float] = defaultdict(float)
+        self.__successful_reload_cooldown = 5.0  # 成功重载后的冷却时间（秒）
     def __reload(self, module_name: str) -> web.Response:
         with self.__lock:
             try:
@@ -347,6 +364,13 @@ class DebouncedHotReloader(FileSystemEventHandler):
         with self.__lock:
             if self.__last_modified[module_name] != scheduled_time:
                 return
+            
+            # 检查是否在冷却期内
+            current_time = time.time()
+            if (current_time - self.__last_successful_reload[module_name]) < self.__successful_reload_cooldown:
+                print(f"\033[93m[LG_HotReload] Module {module_name} was recently reloaded, skipping...\033[0m")
+                return
+
         try:
             module_file = os.path.join(CUSTOM_NODE_ROOT[0], module_name, '__init__.py')
             with open(module_file, 'r', encoding='utf-8') as f:
@@ -446,7 +470,9 @@ class DebouncedHotReloader(FileSystemEventHandler):
                 if os.path.exists(web_dir) and os.path.isdir(web_dir):
                     self.copy_web_files(module_name, web_dir)
 
-                print(f'\033[92m[LG_HotReload] Successfully reloaded module: {module_name}\033[0m')
+            # 如果重载成功，更新最后成功重载时间
+            self.__last_successful_reload[module_name] = time.time()
+            print(f'\033[92m[LG_HotReload] Successfully reloaded module: {module_name}\033[0m')
         except requests.RequestException as e:
             print(f'\033[91m[LG_HotReload] Reload failed: {e}\033[0m')
         except Exception as e:
