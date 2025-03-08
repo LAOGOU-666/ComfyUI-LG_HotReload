@@ -118,6 +118,118 @@ app.registerExtension({
     name: "ComfyUI.HotReload",
     async setup() {
         await app.ui.settings.setup;
+
+        // 添加语言设置
+        const STORAGE_KEY = "hotreload_language";
+        let currentLang = localStorage.getItem(STORAGE_KEY) || "en";
+
+        const i18n = {
+            "zh-CN": {
+                "Hot Reload Configuration": "热加载模块配置",
+                "Open Configuration": "打开配置",
+                "Language": "语言",
+                "Switch to English": "切换到英文",
+                "Switch to Chinese": "切换到中文",
+                "Add modules to exclude from hot reload. These modules won't automatically reload when code changes.": 
+                    "添加需要排除热加载的模块名称。这些模块在代码修改后不会自动重新加载。",
+                "Search excluded modules...": "搜索已排除的模块...",
+                "No matching modules found": "没有找到匹配的模块",
+                "No excluded modules": "没有排除的模块",
+                "Delete": "删除",
+                "Enter module name": "输入模块名称",
+                "Add": "添加",
+                "Add All Modules": "添加所有模块",
+                "Close": "关闭"
+            }
+        };
+
+        // 更新获取当前语言的函数
+        function getCurrentLang() {
+            return currentLang;
+        }
+
+        // 翻译函数
+        function t(key) {
+            const lang = getCurrentLang();
+            return lang === "zh-CN" ? i18n["zh-CN"][key] || key : key;
+        }
+
+        // 添加语言切换设置
+        app.ui.settings.addSetting({
+            id: "HotReload.language",
+            name: currentLang === "zh-CN" ? "语言" : "Language",
+            type: () => {
+                const row = document.createElement("tr");
+                const label = row.querySelector(".comfy-menu-label");
+                if (label) {
+                    label.dataset.translationKey = "Language";
+                }
+                const cell = document.createElement("td");
+                const button = document.createElement("button");
+                button.className = "comfy-btn";
+                
+                function updateButtonText() {
+                    button.textContent = currentLang === "zh-CN" 
+                        ? t("Switch to English") 
+                        : t("Switch to Chinese");
+                }
+                
+                updateButtonText();
+
+                button.onclick = () => {
+                    currentLang = currentLang === "zh-CN" ? "en" : "zh-CN";
+                    localStorage.setItem(STORAGE_KEY, currentLang);
+                    updateButtonText();
+                    updateSettingsLabels();
+                    // 刷新所有翻译文本
+                    document.querySelectorAll('.hotreload-settings-row button').forEach(btn => {
+                        if (btn.dataset.translationKey) {
+                            btn.textContent = t(btn.dataset.translationKey);
+                        }
+                    });
+                };
+
+                cell.appendChild(button);
+                row.appendChild(cell);
+                return row;
+            }
+        });
+
+        // 热加载配置按钮设置
+        app.ui.settings.addSetting({
+            id: "HotReload.config",
+            name: currentLang === "zh-CN" ? "热加载配置" : "Hot Reload Configuration",
+            type: () => {
+                const row = document.createElement("tr");
+                const label = row.querySelector(".comfy-menu-label");
+                if (label) {
+                    label.dataset.translationKey = "Hot Reload Configuration";
+                }
+                row.className = "hotreload-settings-row";
+                const buttonCell = document.createElement("td");
+                const button = document.createElement("button");
+                button.className = "comfy-btn";
+                button.dataset.translationKey = "Open Configuration";
+                button.textContent = t("Open Configuration");
+                button.onclick = () => {
+                    showHotReloadDialog();
+                };
+                buttonCell.appendChild(button);
+                row.appendChild(buttonCell);
+                return row;
+            }
+        });
+
+        // 在语言切换时更新设置项标签
+        function updateSettingsLabels() {
+            const settings = app.ui.settings.element.querySelectorAll(".comfy-menu-label");
+            settings.forEach(label => {
+                if (label.dataset.translationKey) {
+                    label.textContent = t(label.dataset.translationKey);
+                }
+            });
+        }
+
         async function getExcludedModules() {
             try {
                 const response = await api.fetchApi('/hotreload/get_exclude_modules');
@@ -128,24 +240,6 @@ app.registerExtension({
                 return [];
             }
         }
-        app.ui.settings.addSetting({
-            id: "HotReload.config",
-            name: "热加载模块配置",
-            type: () => {
-                const row = document.createElement("tr");
-                row.className = "hotreload-settings-row";
-                const buttonCell = document.createElement("td");
-                const button = document.createElement("button");
-                button.className = "comfy-btn";
-                button.textContent = "打开配置";
-                button.onclick = () => {
-                    showHotReloadDialog();
-                };
-                buttonCell.appendChild(button);
-                row.appendChild(buttonCell);
-                return row;
-            }
-        });
         async function showHotReloadDialog() {
             const modules = await getExcludedModules();
             
@@ -174,13 +268,13 @@ app.registerExtension({
             dialog.style.maxWidth = "600px";
             dialog.style.boxShadow = "0 4px 23px 0 rgba(0, 0, 0, 0.2)";
             const title = document.createElement("h2");
-            title.textContent = "热加载模块配置";
+            title.textContent = t("Hot Reload Configuration");
             title.style.margin = "0 0 20px 0";
             title.style.borderBottom = "1px solid #444";
             title.style.paddingBottom = "10px";
             dialog.appendChild(title);
             const description = document.createElement("p");
-            description.textContent = "添加需要排除热加载的模块名称。这些模块在代码修改后不会自动重新加载。";
+            description.textContent = t("Add modules to exclude from hot reload. These modules won't automatically reload when code changes.");
             description.style.marginBottom = "20px";
             description.style.color = "#aaa";
             dialog.appendChild(description);
@@ -193,7 +287,7 @@ app.registerExtension({
 
             const searchInput = document.createElement("input");
             searchInput.type = "text";
-            searchInput.placeholder = "搜索已排除的模块...";
+            searchInput.placeholder = t("Search excluded modules...");
             searchInput.style.flex = "1";
             searchInput.style.padding = "8px";
             searchInput.style.border = "1px solid #444";
@@ -222,8 +316,8 @@ app.registerExtension({
                 if (filteredModules.length === 0) {
                     const emptyMsg = document.createElement("div");
                     emptyMsg.textContent = searchTerm 
-                        ? "没有找到匹配的模块" 
-                        : "没有排除的模块";
+                        ? t("No matching modules found")
+                        : t("No excluded modules");
                     emptyMsg.style.padding = "10px";
                     emptyMsg.style.color = "#888";
                     listContainer.appendChild(emptyMsg);
@@ -268,7 +362,7 @@ app.registerExtension({
                     };
 
                     const deleteBtn = document.createElement("button");
-                    deleteBtn.textContent = "删除";
+                    deleteBtn.textContent = t("Delete");
                     deleteBtn.className = "comfy-btn";
                     deleteBtn.style.padding = "2px 8px";
                     deleteBtn.style.fontSize = "12px";
@@ -312,7 +406,7 @@ app.registerExtension({
 
             const input = document.createElement("input");
             input.type = "text";
-            input.placeholder = "输入模块名称";
+            input.placeholder = t("Enter module name");
             input.style.flex = "1";
             input.style.padding = "8px";
             input.style.border = "1px solid #444";
@@ -339,7 +433,7 @@ app.registerExtension({
             inputWrapper.style.gap = "10px";
 
             const addBtn = document.createElement("button");
-            addBtn.textContent = "添加";
+            addBtn.textContent = t("Add");
             addBtn.className = "comfy-btn";
             addBtn.style.padding = "8px 15px";
 
@@ -456,7 +550,7 @@ app.registerExtension({
             buttonsContainer.style.justifyContent = "space-between";
             buttonsContainer.style.marginTop = "20px";
             const addAllBtn = document.createElement("button");
-            addAllBtn.textContent = "添加所有模块";
+            addAllBtn.textContent = t("Add All Modules");
             addAllBtn.className = "comfy-btn";
             addAllBtn.style.padding = "8px 20px";
             addAllBtn.onclick = async () => {
@@ -480,7 +574,7 @@ app.registerExtension({
                 }
             };
             const closeBtn = document.createElement("button");
-            closeBtn.textContent = "关闭";
+            closeBtn.textContent = t("Close");
             closeBtn.className = "comfy-btn";
             closeBtn.style.padding = "8px 20px";
             buttonsContainer.appendChild(addAllBtn);

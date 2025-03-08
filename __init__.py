@@ -74,7 +74,10 @@ async def get_all_modules(request):
 if (HOTRELOAD_EXCLUDE := os.getenv("HOTRELOAD_EXCLUDE", None)) is not None:
     EXCLUDE_MODULES.update(x for x in HOTRELOAD_EXCLUDE.split(',') if x)
 HOTRELOAD_OBSERVE_ONLY: set[str] = set(x for x in os.getenv("HOTRELOAD_OBSERVE_ONLY", '').split(',') if x)
-HOTRELOAD_EXTENSIONS: set[str] = set(x.strip() for x in os.getenv("HOTRELOAD_EXTENSIONS", '.py,.json,.yaml').split(',') if x)
+HOTRELOAD_EXTENSIONS: set[str] = set(x.strip() for x in os.getenv(
+    "HOTRELOAD_EXTENSIONS", 
+    '.py,.json,.yaml,.js,.css,.html,.htm,.svg,.png,.jpg,.jpeg,.gif'
+).split(',') if x)
 try:
     DEBOUNCE_TIME: float = float(os.getenv("HOTRELOAD_DEBOUNCE_TIME", 1.0))
 except ValueError:
@@ -154,11 +157,11 @@ class DebouncedHotReloader(FileSystemEventHandler):
         # 添加最后成功重载时间记录
         self.__last_successful_reload: defaultdict[float] = defaultdict(float)
         self.__successful_reload_cooldown = 5.0  # 成功重载后的冷却时间（秒）
+        self.__last_event_time: dict[str, float] = {}
+        self.__event_debounce_time = 0.1  # 100ms 内的重复事件将被忽略
     def __reload(self, module_name: str) -> web.Response:
         with self.__lock:
             try:
-                print(f'\n\033[94m[LG_HotReload] 开始重载模块: {module_name}\033[0m')
-                
                 # 保存原有路由信息
                 original_routes = {}
                 routes = PromptServer.instance.routes
@@ -236,8 +239,8 @@ class DebouncedHotReloader(FileSystemEventHandler):
                             try:
                                 new_router.add_route(method, path, route.handler)
                                 new_router.add_route(method, route.path, route.handler)
-                            except Exception as route_error:
-                                print(f'\033[93m[LG_HotReload] 注册路由失败: {route_error}\033[0m')
+                            except Exception:
+                                pass
                     
                     # 添加所有静态路由
                     try:
@@ -248,8 +251,8 @@ class DebouncedHotReloader(FileSystemEventHandler):
                         if kjweb_path.exists():
                             new_router.add_static('/kjweb_async', kjweb_path.as_posix())
                         new_router.add_static('/', PromptServer.instance.web_root)
-                    except Exception as e:
-                        print(f'\033[93m[LG_HotReload] 添加静态路由失败: {e}\033[0m')
+                    except Exception:
+                        pass
                     
                     # 更新路由器
                     app._router = new_router
@@ -296,23 +299,42 @@ class DebouncedHotReloader(FileSystemEventHandler):
         self.handle_file_event(event.src_path)
     def handle_file_event(self, file_path: str):
         """Common handler for file events (modified/created/deleted)."""
+        if '__pycache__' in file_path.split(os.path.sep):
+            return
+        
         if not any(ext == '*' for ext in HOTRELOAD_EXTENSIONS):
             if not any(file_path.endswith(ext) for ext in HOTRELOAD_EXTENSIONS):
                 return
+        
         if is_hidden_file(file_path):
             return
+        
         relative_path: str = os.path.relpath(file_path, CUSTOM_NODE_ROOT[0])
-        root_dir: str = relative_path.split(os.path.sep)[0]
+        path_parts = relative_path.split(os.path.sep)
+        root_dir: str = path_parts[0]
+        
         if HOTRELOAD_OBSERVE_ONLY and root_dir not in HOTRELOAD_OBSERVE_ONLY:
             return
         elif root_dir in EXCLUDE_MODULES:
             return
+        
         self.schedule_reload(root_dir, file_path)
     def on_modified(self, event):
         """Handles file modification events."""
         if event.is_directory:
             return
-        self.handle_file_event(event.src_path)
+
+        
+        current_time = time.time()
+        file_path = event.src_path
+        
+        with self.__lock:
+            last_time = self.__last_event_time.get(file_path, 0)
+            if (current_time - last_time) < self.__event_debounce_time:
+                return
+            self.__last_event_time[file_path] = current_time
+
+        self.handle_file_event(file_path)
     def schedule_reload(self, module_name: str, file_path: str):
         """
         Schedules a reload of the given module after a delay.
@@ -333,26 +355,42 @@ class DebouncedHotReloader(FileSystemEventHandler):
             timer.start()
     def copy_web_files(self, module_name: str, web_dir: str):
         """
-        将web目录下的文件复制到extensions目录
+        将web目录下的文件复制到extensions目录，仅当该目录未被注册为静态路由时
         Args:
             module_name: 模块名称
             web_dir: web目录路径
         """
         try:
+            router = PromptServer.instance.app.router
+            web_dir_path = os.path.abspath(web_dir)
+            
+            is_route_exists = False
+            for resource in router.resources():
+                if hasattr(resource, '_directory'):
+                    if os.path.abspath(resource._directory) == web_dir_path:
+                        is_route_exists = True
+                        break
+            
+            if is_route_exists:
+                return
+
             web_root = PromptServer.instance.web_root
             extensions_dir = os.path.join(web_root, "extensions", module_name)
+            
             os.makedirs(extensions_dir, exist_ok=True)
+            
             for item in os.listdir(web_dir):
                 src = os.path.join(web_dir, item)
                 dst = os.path.join(extensions_dir, item)
+                
                 if os.path.isfile(src):
                     shutil.copy2(src, dst)
                 elif os.path.isdir(src):
                     if os.path.exists(dst):
                         shutil.rmtree(dst)
                     shutil.copytree(src, dst)
-        except Exception as e:
-            print(f"\033[91m[LG_HotReload] Error copying files: {str(e)}\033[0m")
+                    
+        except Exception:
             traceback.print_exc()
     def check_and_reload(self, module_name: str, scheduled_time: float, file_path: str):
         """

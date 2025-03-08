@@ -1,21 +1,15 @@
 {
     "exclude_modules": [
-        "ComfyUI-Manager",
-        "ComfyUI-Crystools",
-        "test",
-        "frontend.disabled",
-        "Comfyui-Transform.disabled",
-        "ComfyUI-Depth-Pro",
-        "comfyui-kjnodes",
-        "backend",
-        "Inspyrenet",
-        "ComfyUI-LG_HotReload",
-        "rgthree-comfy",
-        "Comfyui-LG_Relight",
         "comfyui_layerstyle",
-        "ComfyUI-Depth-Anything-Tensorrt",
-        "Comfyui_LG_Advertisement",
+        "ComfyUI-Crystools",
+        "rgthree-comfy",
+        "AIGODLIKE-ComfyUI-Translation",
+        "Comfyui-LG_Relight",
+        "comfyui-kjnodes",
         "ComfyUI_Custom_Nodes_AlekPet",
-        "LG_Node"
+        "ComfyUI-Manager",
+        "ComfyUI-IF_AI_tools",
+        "ComfyUI-LG_HotReload"
+
     ]
 }
