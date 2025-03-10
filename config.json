@@ -1,15 +1,14 @@
 {
     "exclude_modules": [
-        "comfyui_layerstyle",
-        "ComfyUI-Crystools",
-        "rgthree-comfy",
-        "AIGODLIKE-ComfyUI-Translation",
-        "Comfyui-LG_Relight",
-        "comfyui-kjnodes",
-        "ComfyUI_Custom_Nodes_AlekPet",
-        "ComfyUI-Manager",
         "ComfyUI-IF_AI_tools",
-        "ComfyUI-LG_HotReload"
-
+        "rgthree-comfy",
+        "comfyui-kjnodes",
+        "ComfyUI-LG_HotReload",
+        "AIGODLIKE-ComfyUI-Translation",
+        "comfyui_layerstyle",
+        "ComfyUI-Manager",
+        "ComfyUI-Crystools",
+        "ComfyUI_Custom_Nodes_AlekPet",
+        "Comfyui-LG_Relight"
     ]
 }
