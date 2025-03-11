@@ -136,6 +136,118 @@ app.registerExtension({
     name: "ComfyUI.HotReload",
     async setup() {
         await app.ui.settings.setup;
+
+        // 添加语言设置
+        const STORAGE_KEY = "hotreload_language";
+        let currentLang = localStorage.getItem(STORAGE_KEY) || "en";
+
+        const i18n = {
+            "zh-CN": {
+                "Hot Reload Configuration": "热加载模块配置",
+                "Open Configuration": "打开配置",
+                "Language": "语言",
+                "Switch to English": "切换到英文",
+                "Switch to Chinese": "切换到中文",
+                "Add modules to exclude from hot reload. These modules won't automatically reload when code changes.": 
+                    "添加需要排除热加载的模块名称。这些模块在代码修改后不会自动重新加载。",
+                "Search excluded modules...": "搜索已排除的模块...",
+                "No matching modules found": "没有找到匹配的模块",
+                "No excluded modules": "没有排除的模块",
+                "Delete": "删除",
+                "Enter module name": "输入模块名称",
+                "Add": "添加",
+                "Add All Modules": "添加所有模块",
+                "Close": "关闭"
+            }
+        };
+
+        // 更新获取当前语言的函数
+        function getCurrentLang() {
+            return currentLang;
+        }
+
+        // 翻译函数
+        function t(key) {
+            const lang = getCurrentLang();
+            return lang === "zh-CN" ? i18n["zh-CN"][key] || key : key;
+        }
+
+        // 添加语言切换设置
+        app.ui.settings.addSetting({
+            id: "HotReload.language",
+            name: currentLang === "zh-CN" ? "语言" : "Language",
+            type: () => {
+                const row = document.createElement("tr");
+                const label = row.querySelector(".comfy-menu-label");
+                if (label) {
+                    label.dataset.translationKey = "Language";
+                }
+                const cell = document.createElement("td");
+                const button = document.createElement("button");
+                button.className = "comfy-btn";
+                
+                function updateButtonText() {
+                    button.textContent = currentLang === "zh-CN" 
+                        ? t("Switch to English") 
+                        : t("Switch to Chinese");
+                }
+                
+                updateButtonText();
+
+                button.onclick = () => {
+                    currentLang = currentLang === "zh-CN" ? "en" : "zh-CN";
+                    localStorage.setItem(STORAGE_KEY, currentLang);
+                    updateButtonText();
+                    updateSettingsLabels();
+                    // 刷新所有翻译文本
+                    document.querySelectorAll('.hotreload-settings-row button').forEach(btn => {
+                        if (btn.dataset.translationKey) {
+                            btn.textContent = t(btn.dataset.translationKey);
+                        }
+                    });
+                };
+
+                cell.appendChild(button);
+                row.appendChild(cell);
+                return row;
+            }
+        });
+
+        // 热加载配置按钮设置
+        app.ui.settings.addSetting({
+            id: "HotReload.config",
+            name: currentLang === "zh-CN" ? "热加载配置" : "Hot Reload Configuration",
+            type: () => {
+                const row = document.createElement("tr");
+                const label = row.querySelector(".comfy-menu-label");
+                if (label) {
+                    label.dataset.translationKey = "Hot Reload Configuration";
+                }
+                row.className = "hotreload-settings-row";
+                const buttonCell = document.createElement("td");
+                const button = document.createElement("button");
+                button.className = "comfy-btn";
+                button.dataset.translationKey = "Open Configuration";
+                button.textContent = t("Open Configuration");
+                button.onclick = () => {
+                    showHotReloadDialog();
+                };
+                buttonCell.appendChild(button);
+                row.appendChild(buttonCell);
+                return row;
+            }
+        });
+
+        // 在语言切换时更新设置项标签
+        function updateSettingsLabels() {
+            const settings = app.ui.settings.element.querySelectorAll(".comfy-menu-label");
+            settings.forEach(label => {
+                if (label.dataset.translationKey) {
+                    label.textContent = t(label.dataset.translationKey);
+                }
+            });
+        }
+
         async function getExcludedModules() {
             try {
                 const response = await api.fetchApi('/hotreload/get_exclude_modules');
@@ -146,26 +258,19 @@ app.registerExtension({
                 return [];
             }
         }
-        app.ui.settings.addSetting({
-            id: "HotReload.config",
-            name: "热加载模块配置",
-            type: () => {
-                const row = document.createElement("tr");
-                row.className = "hotreload-settings-row";
-                const buttonCell = document.createElement("td");
-                const button = document.createElement("button");
-                button.className = "comfy-btn";
-                button.textContent = "打开配置";
-                button.onclick = () => {
-                    showHotReloadDialog();
-                };
-                buttonCell.appendChild(button);
-                row.appendChild(buttonCell);
-                return row;
-            }
-        });
         async function showHotReloadDialog() {
             const modules = await getExcludedModules();
+            
+            // 获取所有可用模块
+            let allAvailableModules = [];
+            try {
+                const response = await api.fetchApi('/hotreload/get_all_modules');
+                const data = await response.json();
+                allAvailableModules = data.modules;
+            } catch (error) {
+                console.error('获取所有模块失败:', error);
+            }
+
             const dialog = document.createElement("div");
             dialog.className = "hotreload-dialog";
             dialog.style.position = "fixed";
@@ -181,16 +286,37 @@ app.registerExtension({
             dialog.style.maxWidth = "600px";
             dialog.style.boxShadow = "0 4px 23px 0 rgba(0, 0, 0, 0.2)";
             const title = document.createElement("h2");
-            title.textContent = "热加载模块配置";
+            title.textContent = t("Hot Reload Configuration");
             title.style.margin = "0 0 20px 0";
             title.style.borderBottom = "1px solid #444";
             title.style.paddingBottom = "10px";
             dialog.appendChild(title);
             const description = document.createElement("p");
-            description.textContent = "添加需要排除热加载的模块名称。这些模块在代码修改后不会自动重新加载。";
+            description.textContent = t("Add modules to exclude from hot reload. These modules won't automatically reload when code changes.");
             description.style.marginBottom = "20px";
             description.style.color = "#aaa";
             dialog.appendChild(description);
+
+            // 添加搜索框
+            const searchContainer = document.createElement("div");
+            searchContainer.style.marginBottom = "15px";
+            searchContainer.style.display = "flex";
+            searchContainer.style.alignItems = "center";
+
+            const searchInput = document.createElement("input");
+            searchInput.type = "text";
+            searchInput.placeholder = t("Search excluded modules...");
+            searchInput.style.flex = "1";
+            searchInput.style.padding = "8px";
+            searchInput.style.border = "1px solid #444";
+            searchInput.style.borderRadius = "4px";
+            searchInput.style.backgroundColor = "#333";
+            searchInput.style.color = "#eee";
+            searchInput.style.marginBottom = "10px";
+
+            searchContainer.appendChild(searchInput);
+            dialog.appendChild(searchContainer);
+
             const listContainer = document.createElement("div");
             listContainer.style.maxHeight = "200px";
             listContainer.style.overflowY = "auto";
@@ -198,32 +324,69 @@ app.registerExtension({
             listContainer.style.border = "1px solid #333";
             listContainer.style.borderRadius = "4px";
             listContainer.style.padding = "5px";
-            function renderModuleList() {
+
+            function renderModuleList(searchTerm = '') {
                 listContainer.innerHTML = '';
-                if (modules.length === 0) {
+                const filteredModules = searchTerm 
+                    ? modules.filter(m => m.toLowerCase().includes(searchTerm.toLowerCase()))
+                    : modules;
+
+                if (filteredModules.length === 0) {
                     const emptyMsg = document.createElement("div");
-                    emptyMsg.textContent = "没有排除的模块";
+                    emptyMsg.textContent = searchTerm 
+                        ? t("No matching modules found")
+                        : t("No excluded modules");
                     emptyMsg.style.padding = "10px";
                     emptyMsg.style.color = "#888";
                     listContainer.appendChild(emptyMsg);
                     return;
                 }
-                modules.forEach(module => {
+
+                filteredModules.forEach(module => {
                     const item = document.createElement("div");
                     item.style.display = "flex";
                     item.style.justifyContent = "space-between";
                     item.style.alignItems = "center";
                     item.style.padding = "8px";
                     item.style.borderBottom = "1px solid #333";
+                    item.style.cursor = "pointer";
+                    
+                    // 如果是搜索结果，高亮匹配文本
                     const nameSpan = document.createElement("span");
-                    nameSpan.textContent = module;
+                    if (searchTerm) {
+                        const regex = new RegExp(`(${searchTerm})`, 'gi');
+                        const parts = module.split(regex);
+                        parts.forEach(part => {
+                            const span = document.createElement("span");
+                            if (part.toLowerCase() === searchTerm.toLowerCase()) {
+                                span.style.backgroundColor = "#555";
+                                span.style.borderRadius = "2px";
+                                span.style.padding = "0 2px";
+                            }
+                            span.textContent = part;
+                            nameSpan.appendChild(span);
+                        });
+                    } else {
+                        nameSpan.textContent = module;
+                    }
+
+                    // 点击模块名称时滚动到视图中
+                    item.onclick = () => {
+                        item.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        item.style.backgroundColor = '#444';
+                        setTimeout(() => {
+                            item.style.backgroundColor = 'transparent';
+                        }, 1000);
+                    };
+
                     const deleteBtn = document.createElement("button");
-                    deleteBtn.textContent = "删除";
+                    deleteBtn.textContent = t("Delete");
                     deleteBtn.className = "comfy-btn";
                     deleteBtn.style.padding = "2px 8px";
                     deleteBtn.style.fontSize = "12px";
                     deleteBtn.style.marginLeft = "10px";
-                    deleteBtn.onclick = async () => {
+                    deleteBtn.onclick = async (e) => {
+                        e.stopPropagation(); // 防止触发item的点击事件
                         const index = modules.indexOf(module);
                         if (index > -1) {
                             modules.splice(index, 1);
@@ -232,46 +395,138 @@ app.registerExtension({
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ exclude_modules: modules })
                             });
-                            renderModuleList();
+                            renderModuleList(searchInput.value);
                         }
                     };
+
                     item.appendChild(nameSpan);
                     item.appendChild(deleteBtn);
                     listContainer.appendChild(item);
                 });
             }
+
+            // 添加搜索输入事件处理
+            let searchTimeout;
+            searchInput.addEventListener('input', (e) => {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => {
+                    renderModuleList(e.target.value.trim());
+                }, 300); // 300ms防抖
+            });
+
             renderModuleList();
             dialog.appendChild(listContainer);
             const inputContainer = document.createElement("div");
             inputContainer.style.display = "flex";
+            inputContainer.style.flexDirection = "column";
             inputContainer.style.marginBottom = "20px";
+            inputContainer.style.position = "relative";  // 为下拉菜单定位
+
             const input = document.createElement("input");
             input.type = "text";
-            input.placeholder = "输入模块名称";
+            input.placeholder = t("Enter module name");
             input.style.flex = "1";
             input.style.padding = "8px";
             input.style.border = "1px solid #444";
             input.style.borderRadius = "4px";
             input.style.backgroundColor = "#333";
             input.style.color = "#eee";
+
+            // 创建建议列表容器
+            const suggestionsContainer = document.createElement("div");
+            suggestionsContainer.style.position = "absolute";
+            suggestionsContainer.style.top = "100%";
+            suggestionsContainer.style.left = "0";
+            suggestionsContainer.style.right = "0";
+            suggestionsContainer.style.maxHeight = "200px";
+            suggestionsContainer.style.overflowY = "auto";
+            suggestionsContainer.style.backgroundColor = "#333";
+            suggestionsContainer.style.border = "1px solid #444";
+            suggestionsContainer.style.borderRadius = "4px";
+            suggestionsContainer.style.zIndex = "1000";
+            suggestionsContainer.style.display = "none";
+
+            const inputWrapper = document.createElement("div");
+            inputWrapper.style.display = "flex";
+            inputWrapper.style.gap = "10px";
+
             const addBtn = document.createElement("button");
-            addBtn.textContent = "添加";
+            addBtn.textContent = t("Add");
             addBtn.className = "comfy-btn";
-            addBtn.style.marginLeft = "10px";
             addBtn.style.padding = "8px 15px";
-            inputContainer.appendChild(input);
-            inputContainer.appendChild(addBtn);
-            dialog.appendChild(inputContainer);
-            const buttonsContainer = document.createElement("div");
-            buttonsContainer.style.display = "flex";
-            buttonsContainer.style.justifyContent = "flex-end";
-            buttonsContainer.style.marginTop = "20px";
-            const closeBtn = document.createElement("button");
-            closeBtn.textContent = "关闭";
-            closeBtn.className = "comfy-btn";
-            closeBtn.style.padding = "8px 20px";
-            buttonsContainer.appendChild(closeBtn);
-            dialog.appendChild(buttonsContainer);
+
+            inputWrapper.appendChild(input);
+            inputWrapper.appendChild(addBtn);
+            inputContainer.appendChild(inputWrapper);
+            inputContainer.appendChild(suggestionsContainer);
+
+            // 更新建议列表
+            function updateSuggestions(searchTerm) {
+                suggestionsContainer.innerHTML = '';
+                if (!searchTerm) {
+                    suggestionsContainer.style.display = "none";
+                    return;
+                }
+
+                const filteredModules = allAvailableModules
+                    .filter(m => !modules.includes(m)) // 排除已添加的模块
+                    .filter(m => m.toLowerCase().includes(searchTerm.toLowerCase()));
+
+                if (filteredModules.length === 0) {
+                    suggestionsContainer.style.display = "none";
+                    return;
+                }
+
+                filteredModules.forEach(module => {
+                    const suggestion = document.createElement("div");
+                    suggestion.style.padding = "8px";
+                    suggestion.style.cursor = "pointer";
+                    suggestion.style.borderBottom = "1px solid #444";
+                    suggestion.style.color = "#eee";
+
+                    // 高亮匹配文本
+                    const regex = new RegExp(`(${searchTerm})`, 'gi');
+                    const parts = module.split(regex);
+                    suggestion.innerHTML = parts.map(part => 
+                        part.toLowerCase() === searchTerm.toLowerCase()
+                            ? `<span style="background-color: #555; border-radius: 2px; padding: 0 2px;">${part}</span>`
+                            : part
+                    ).join('');
+
+                    suggestion.onmouseover = () => {
+                        suggestion.style.backgroundColor = "#444";
+                    };
+                    suggestion.onmouseout = () => {
+                        suggestion.style.backgroundColor = "transparent";
+                    };
+                    suggestion.onclick = () => {
+                        input.value = module;
+                        suggestionsContainer.style.display = "none";
+                    };
+
+                    suggestionsContainer.appendChild(suggestion);
+                });
+
+                suggestionsContainer.style.display = "block";
+            }
+
+            // 添加输入事件监听
+            let inputTimeout;
+            input.addEventListener('input', (e) => {
+                clearTimeout(inputTimeout);
+                inputTimeout = setTimeout(() => {
+                    updateSuggestions(e.target.value.trim());
+                }, 200);
+            });
+
+            // 点击外部时隐藏建议列表
+            document.addEventListener('click', (e) => {
+                if (!inputContainer.contains(e.target)) {
+                    suggestionsContainer.style.display = "none";
+                }
+            });
+
+            // 更新添加按钮的点击事件
             addBtn.onclick = async () => {
                 const moduleName = input.value.trim();
                 if (moduleName && !modules.includes(moduleName)) {
@@ -282,9 +537,12 @@ app.registerExtension({
                         body: JSON.stringify({ exclude_modules: modules })
                     });
                     input.value = '';
-                    renderModuleList();
+                    suggestionsContainer.style.display = "none";
+                    renderModuleList(searchInput.value);
                 }
             };
+
+            // 更新输入框的回车事件
             input.addEventListener('keydown', async (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
@@ -297,10 +555,49 @@ app.registerExtension({
                             body: JSON.stringify({ exclude_modules: modules })
                         });
                         input.value = '';
-                        renderModuleList();
+                        suggestionsContainer.style.display = "none";
+                        renderModuleList(searchInput.value);
                     }
                 }
             });
+
+            dialog.appendChild(inputContainer);
+
+            const buttonsContainer = document.createElement("div");
+            buttonsContainer.style.display = "flex";
+            buttonsContainer.style.justifyContent = "space-between";
+            buttonsContainer.style.marginTop = "20px";
+            const addAllBtn = document.createElement("button");
+            addAllBtn.textContent = t("Add All Modules");
+            addAllBtn.className = "comfy-btn";
+            addAllBtn.style.padding = "8px 20px";
+            addAllBtn.onclick = async () => {
+                try {
+                    const response = await api.fetchApi('/hotreload/get_all_modules');
+                    const data = await response.json();
+                    const allModules = data.modules;
+                    
+                    const newModules = allModules.filter(m => !modules.includes(m));
+                    if (newModules.length > 0) {
+                        modules.push(...newModules);
+                        await api.fetchApi('/hotreload/update_exclude_modules', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ exclude_modules: modules })
+                        });
+                        renderModuleList(searchInput.value);
+                    }
+                } catch (error) {
+                    console.error('获取所有模块失败:', error);
+                }
+            };
+            const closeBtn = document.createElement("button");
+            closeBtn.textContent = t("Close");
+            closeBtn.className = "comfy-btn";
+            closeBtn.style.padding = "8px 20px";
+            buttonsContainer.appendChild(addAllBtn);
+            buttonsContainer.appendChild(closeBtn);
+            dialog.appendChild(buttonsContainer);
             closeBtn.onclick = () => {
                 document.body.removeChild(dialog);
                 if (document.getElementById('hotreload-dialog-overlay')) {
