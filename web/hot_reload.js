@@ -77,15 +77,24 @@ app.registerExtension({
                             node.size = state.size;
                             Object.assign(node.properties, state.properties);
                             if (node.widgets) {
-                                node.widgets.forEach(w => {
+                                for (const w of node.widgets) {
                                     if (state.widgets[w.name] !== undefined) {
-                                        if (w.loadValue) {
-                                            w.loadValue(state.widgets[w.name]);
-                                        } else {
-                                            w.value = state.widgets[w.name];
+                                        try {
+                                            if (w.loadValue) {
+                                                await w.loadValue(state.widgets[w.name]);
+                                            } else {
+                                                const value = state.widgets[w.name];
+                                                if (value instanceof Promise) {
+                                                    w.value = await value;
+                                                } else {
+                                                    w.value = value;
+                                                }
+                                            }
+                                        } catch (error) {
+                                            console.warn(`[HotReload] Failed to restore widget value for ${w.name}:`, error);
                                         }
                                     }
-                                });
+                                }
                             }
                         }
                     }
