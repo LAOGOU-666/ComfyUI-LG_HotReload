@@ -15,23 +15,52 @@ app.registerExtension({
                     for (const nodeClass of nodesToUpdate) {
                         const existingNodes = app.graph.findNodesByType(nodeClass);
                         existingNodes.forEach(node => {
-                            savedStates.set(node.id, {
-                                id: node.id,
-                                pos: [...node.pos],
-                                size: [...node.size],
-                                widgets: node.widgets?.reduce((acc, w) => {
-                                    acc[w.name] = w.serializeValue ? w.serializeValue() : w.value;
-                                    return acc;
-                                }, {}),
-                                properties: {...node.properties}
-                            });
+                            try {
+                                const widgetStates = {};
+                                if (node.widgets) {
+                                    for (const w of node.widgets) {
+                                        try {
+                                            if (w && w.name) {
+                                                if (w.value === undefined || w.value === null) {
+                                                    widgetStates[w.name] = w.value;
+                                                    continue;
+                                                }
+                                                
+                                                widgetStates[w.name] = w.serializeValue ? 
+                                                    (typeof w.serializeValue === 'function' ? 
+                                                        (function() {
+                                                            try {
+                                                                return w.serializeValue();
+                                                            } catch {
+                                                                return w.value;
+                                                            }
+                                                        })() 
+                                                        : w.value) 
+                                                    : w.value;
+                                            }
+                                        } catch (widgetError) {
+                                            console.warn(`[HotReload] Failed to serialize widget ${w?.name}, using original value:`, widgetError);
+                                            widgetStates[w.name] = w.value;
+                                        }
+                                    }
+                                }
+                                
+                                savedStates.set(node.id, {
+                                    id: node.id,
+                                    pos: [...node.pos],
+                                    size: [...node.size],
+                                    widgets: widgetStates,
+                                    properties: {...node.properties}
+                                });
+                            } catch (nodeError) {
+                                console.error(`[HotReload] Failed to save node state:`, nodeError);
+                            }
                         });
                     }
                     
                     // 更新节点定义
                     for (const nodeClass of nodesToUpdate) {
                         try {
-                            console.log(`[HotReload] 正在获取节点数据: ${nodeClass}`);
                             const response = await api.fetchApi(`/object_info/${nodeClass}`);
                             
                             if (!response.ok) {
@@ -42,20 +71,16 @@ app.registerExtension({
                             }
 
                             const nodeData = await response.json();
-                            console.log(`[HotReload] 获取到节点数据:`, nodeData);
                             
                             if (nodeData && nodeData[nodeClass]) {
                                 app.registerNodeDef(nodeClass, nodeData[nodeClass]);
                                 const existingNodes = app.graph.findNodesByType(nodeClass);
-                                console.log(`[HotReload] 更新现有节点数量: ${existingNodes.length}`);
-                                
                                 existingNodes.forEach(node => {
                                     if (node.widgets) {
                                         node.widgets.forEach(widget => {
                                             if (widget.type === "combo" &&
                                                 nodeData[nodeClass]["input"]["required"][widget.name]) {
                                                 widget.options.values = nodeData[nodeClass]["input"]["required"][widget.name][0];
-                                                console.log(`[HotReload] 更新 combo 选项: ${widget.name}`, widget.options.values);
                                             }
                                         });
                                     }
