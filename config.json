@@ -3,12 +3,14 @@
         "ComfyUI-IF_AI_tools",
         "rgthree-comfy",
         "comfyui-kjnodes",
-        "ComfyUI-LG_HotReload",
-        "AIGODLIKE-ComfyUI-Translation",
-        "comfyui_layerstyle",
         "ComfyUI-Manager",
+        "ComfyUI-Depth-Pro",
+        "ComfyUI-Depth-Anything-Tensorrt",
+        "comfyui_layerstyle",
         "ComfyUI-Crystools",
-        "ComfyUI_Custom_Nodes_AlekPet",
-        "Comfyui-LG_Relight"
+        "AIGODLIKE-ComfyUI-Translation",
+        "ComfyUI-LG_HotReload",
+        "ComfyUI-Easy-Use",
+        "ComfyUI_Custom_Nodes_AlekPet"
     ]
 }
