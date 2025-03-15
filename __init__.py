@@ -70,7 +70,6 @@ async def get_all_modules(request):
         return web.json_response({"modules": modules})
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=500)
-    
 if (HOTRELOAD_EXCLUDE := os.getenv("HOTRELOAD_EXCLUDE", None)) is not None:
     EXCLUDE_MODULES.update(x for x in HOTRELOAD_EXCLUDE.split(',') if x)
 HOTRELOAD_OBSERVE_ONLY: set[str] = set(x for x in os.getenv("HOTRELOAD_OBSERVE_ONLY", '').split(',') if x)
