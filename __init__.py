@@ -191,8 +191,14 @@ class DebouncedHotReloader(FileSystemEventHandler):
                     # 确保模块被正确注册到sys.modules中
                     try:
                         import importlib.util
-                        init_path = os.path.join(module_path, '__init__.py')
-                        spec = importlib.util.spec_from_file_location(module_name, init_path)
+                        if os.path.isfile(module_path):
+                            # 处理单个.py文件
+                            spec = importlib.util.spec_from_file_location(module_name, module_path)
+                        else:
+                            # 处理模块目录
+                            init_path = os.path.join(module_path, '__init__.py')
+                            spec = importlib.util.spec_from_file_location(module_name, init_path)
+                        
                         if spec:
                             module = importlib.util.module_from_spec(spec)
                             sys.modules[module_name] = module
