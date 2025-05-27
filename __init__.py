@@ -183,7 +183,39 @@ class DebouncedHotReloader(FileSystemEventHandler):
                                          and route.handler.__module__ == module_name)]
                     
                     # 重新加载自定义节点 - 这会处理路由注册
-                    load_custom_node(module_path)
+                    success = load_custom_node(module_path)
+                    if not success:
+                        print(f'\033[91m[LG_HotReload] 加载模块失败: {module_name}\033[0m')
+                        return web.Response(text='FAILED')
+                    
+                    # 确保模块被正确注册到sys.modules中
+                    try:
+                        import importlib.util
+                        init_path = os.path.join(module_path, '__init__.py')
+                        spec = importlib.util.spec_from_file_location(module_name, init_path)
+                        if spec:
+                            module = importlib.util.module_from_spec(spec)
+                            sys.modules[module_name] = module
+                            spec.loader.exec_module(module)
+                    except Exception as e:
+                        print(f'\033[91m[LG_HotReload] 重新注册模块失败: {str(e)}\033[0m')
+                        traceback.print_exc()
+                    
+                    # 确保节点被正确注册到全局的 NODE_CLASS_MAPPINGS 中
+                    module = sys.modules.get(module_name)
+                    if module and hasattr(module, 'NODE_CLASS_MAPPINGS'):
+                        # 先清理旧的节点映射
+                        for name in list(nodes.NODE_CLASS_MAPPINGS.keys()):
+                            if name in module.NODE_CLASS_MAPPINGS:
+                                del nodes.NODE_CLASS_MAPPINGS[name]
+                        
+                        # 重新注册节点
+                        for name, node_cls in module.NODE_CLASS_MAPPINGS.items():
+                            nodes.NODE_CLASS_MAPPINGS[name] = node_cls
+                            node_cls.RELATIVE_PYTHON_MODULE = f"custom_nodes.{module_name}"
+                        
+                        if hasattr(module, 'NODE_DISPLAY_NAME_MAPPINGS'):
+                            nodes.NODE_DISPLAY_NAME_MAPPINGS.update(module.NODE_DISPLAY_NAME_MAPPINGS)
                     
                     # 重新设置路由器
                     app = PromptServer.instance.app
@@ -226,6 +258,7 @@ class DebouncedHotReloader(FileSystemEventHandler):
                     for key in module.NODE_CLASS_MAPPINGS.keys():
                         RELOADED_CLASS_TYPES[key] = 3
 
+                print(f'\033[92m[LG_HotReload] 模块重载成功: {module_name}\033[0m')
                 return web.Response(text='OK')
                 
             except Exception as e:
