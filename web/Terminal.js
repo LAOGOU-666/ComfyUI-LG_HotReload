@@ -53,7 +53,9 @@ app.registerExtension({
             const onNodeCreated = nodeType.prototype.onNodeCreated;
             nodeType.prototype.onNodeCreated = async function () {
                 const me = onNodeCreated?.apply(this);
-                Util.AddReadOnlyTextArea(this, "terminal", "");
+                var textArea = Util.AddReadOnlyTextArea(this, "terminal", "");
+                textArea.element.style.backgroundColor = "#000000ff"
+                textArea.element.style.fontColor = "#ffffffff"
                 let clearBtn = Util.AddButtonWidget(this, "Clear", clearButtonCallback)
                 clearBtn.width = 128
                 this.terminalVersion = -1
