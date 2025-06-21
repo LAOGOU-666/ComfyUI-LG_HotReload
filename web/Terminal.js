@@ -26,7 +26,13 @@ app.registerExtension({
             let totalText = String(event.detail.text || "")
             TerminalLines.push(...(totalText.split("\n")))
             if (TerminalLines.length > 1024) {
-                TerminalLines = TerminalLines.slice(0, 1024)
+                TerminalLines = TerminalLines.slice(TerminalLines.length - 1024, TerminalLines.length)
+            }
+            // Refresh all Terminal Nodes
+            for (let i = 0; i < app.graph._nodes.length; i++) {
+                var node = app.graph._nodes[i]
+                if (node.type != "HotReload_Terminal") continue;
+                node.onDrawForeground?.apply(node, [app.ctx, app.canvas]);
             }
         }
 
