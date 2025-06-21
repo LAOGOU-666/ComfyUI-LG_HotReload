@@ -22,7 +22,7 @@ from server import PromptServer
 import json
 import nodes
 from pathlib import Path
-from .Nodes.Debug import *
+from .Nodes.Terminal import *
 RELOADED_CLASS_TYPES: dict = {}
 CUSTOM_NODE_ROOT: list[str] = folder_paths.folder_names_and_paths["custom_nodes"][0]
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
