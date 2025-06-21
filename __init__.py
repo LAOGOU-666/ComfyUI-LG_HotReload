@@ -22,6 +22,7 @@ from server import PromptServer
 import json
 import nodes
 from pathlib import Path
+from .Nodes.Terminal import *
 RELOADED_CLASS_TYPES: dict = {}
 CUSTOM_NODE_ROOT: list[str] = folder_paths.folder_names_and_paths["custom_nodes"][0]
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
@@ -511,5 +512,5 @@ def setup():
     hot_reloader_service.start()
 setup()
 WEB_DIRECTORY = "./web"
-NODE_CLASS_MAPPINGS = {}
-NODE_DISPLAY_NAME_MAPPINGS = {}
+NODE_CLASS_MAPPINGS = {"HotReload_Terminal": HotReload_Terminal}
+NODE_DISPLAY_NAME_MAPPINGS = {"HotReload_Terminal": "Terminal"}
