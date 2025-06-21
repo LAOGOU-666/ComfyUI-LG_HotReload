@@ -5,6 +5,10 @@
 
 一个用于 ComfyUI 的热重载扩展，安装即可，让你在开发自定义节点/安装插件时能够实时预览更改，无需重启 ComfyUI。
 
+感谢[@Mo-enen](https://github.com/Mo-enen) 制作的Terminal节点完美解决系统终端重载后失效的BUG
+
+![Image](https://github.com/user-attachments/assets/1b317a55-01ef-4e1a-a1c2-06f92c59d83d)
+
 ![Image](setting.png)
 
 ## 新增功能
