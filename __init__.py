@@ -8,10 +8,10 @@ import hashlib
 import logging
 import requests
 import threading
-import importlib
 from collections import defaultdict
 import traceback
-import shutil
+import asyncio
+
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from aiohttp import web
@@ -21,7 +21,7 @@ from comfy_execution import caching
 from server import PromptServer
 import json
 import nodes
-from pathlib import Path
+
 from .Nodes.Terminal import *
 RELOADED_CLASS_TYPES: dict = {}
 CUSTOM_NODE_ROOT: list[str] = folder_paths.folder_names_and_paths["custom_nodes"][0]
@@ -74,7 +74,7 @@ async def get_all_modules(request):
 if (HOTRELOAD_EXCLUDE := os.getenv("HOTRELOAD_EXCLUDE", None)) is not None:
     EXCLUDE_MODULES.update(x for x in HOTRELOAD_EXCLUDE.split(',') if x)
 HOTRELOAD_OBSERVE_ONLY: set[str] = set(x for x in os.getenv("HOTRELOAD_OBSERVE_ONLY", '').split(',') if x)
-HOTRELOAD_EXTENSIONS: set[str] = set(x.strip() for x in os.getenv("HOTRELOAD_EXTENSIONS", '.py,.json,.yaml').split(',') if x)
+HOTRELOAD_EXTENSIONS: set[str] = set(x.strip() for x in os.getenv("HOTRELOAD_EXTENSIONS", '.py').split(',') if x)
 try:
     DEBOUNCE_TIME: float = float(os.getenv("HOTRELOAD_DEBOUNCE_TIME", 1.0))
 except ValueError:
@@ -158,116 +158,76 @@ class DebouncedHotReloader(FileSystemEventHandler):
         with self.__lock:
             try:
                 print(f'\n\033[94m[LG_HotReload] 开始重载模块: {module_name}\033[0m')
-                
+
                 module_path = os.path.join(CUSTOM_NODE_ROOT[0], module_name)
-                
-                # 保存原始路由
-                routes = PromptServer.instance.routes
-                original_routes = list(routes._items)
-                
+
+                # 收集需要重新加载的所有模块
+                modules_to_reload = set()
+                for name, module in list(sys.modules.items()):
+                    if hasattr(module, '__file__') and module.__file__ and \
+                       module.__file__.startswith(module_path):
+                        modules_to_reload.add(name)
+
+                # 删除所有相关模块
+                for name in modules_to_reload:
+                    if name in sys.modules:
+                        del sys.modules[name]
+
+                # 重新加载自定义节点
                 try:
-                    # 收集需要重新加载的所有模块
-                    modules_to_reload = set()
-                    for name, module in list(sys.modules.items()):
-                        if hasattr(module, '__file__') and module.__file__ and \
-                           module.__file__.startswith(module_path):
-                            modules_to_reload.add(name)
-                    
-                    # 删除所有相关模块
-                    for name in modules_to_reload:
-                        if name in sys.modules:
-                            del sys.modules[name]
-                    
-                    # 清理路由
-                    routes._items = [route for route in routes._items
-                                   if not (hasattr(route.handler, '__module__')
-                                         and route.handler.__module__ == module_name)]
-                    
-                    # 重新加载自定义节点 - 这会处理路由注册
-                    success = load_custom_node(module_path)
-                    if not success:
-                        print(f'\033[91m[LG_HotReload] 加载模块失败: {module_name}\033[0m')
-                        return web.Response(text='FAILED')
-                    
-                    # 确保模块被正确注册到sys.modules中
-                    try:
-                        import importlib.util
-                        if os.path.isfile(module_path):
-                            # 处理单个.py文件
-                            spec = importlib.util.spec_from_file_location(module_name, module_path)
-                        else:
-                            # 处理模块目录
-                            init_path = os.path.join(module_path, '__init__.py')
-                            spec = importlib.util.spec_from_file_location(module_name, init_path)
-                        
-                        if spec:
-                            module = importlib.util.module_from_spec(spec)
-                            sys.modules[module_name] = module
-                            spec.loader.exec_module(module)
-                    except Exception as e:
-                        print(f'\033[91m[LG_HotReload] 重新注册模块失败: {str(e)}\033[0m')
-                        traceback.print_exc()
-                    
-                    # 确保节点被正确注册到全局的 NODE_CLASS_MAPPINGS 中
-                    module = sys.modules.get(module_name)
-                    if module and hasattr(module, 'NODE_CLASS_MAPPINGS'):
-                        # 先清理旧的节点映射
-                        for name in list(nodes.NODE_CLASS_MAPPINGS.keys()):
-                            if name in module.NODE_CLASS_MAPPINGS:
-                                del nodes.NODE_CLASS_MAPPINGS[name]
-                        
-                        # 重新注册节点
-                        for name, node_cls in module.NODE_CLASS_MAPPINGS.items():
-                            nodes.NODE_CLASS_MAPPINGS[name] = node_cls
-                            node_cls.RELATIVE_PYTHON_MODULE = f"custom_nodes.{module_name}"
-                        
-                        if hasattr(module, 'NODE_DISPLAY_NAME_MAPPINGS'):
-                            nodes.NODE_DISPLAY_NAME_MAPPINGS.update(module.NODE_DISPLAY_NAME_MAPPINGS)
-                    
-                    # 重新设置路由器
-                    app = PromptServer.instance.app
-                    new_router = web.UrlDispatcher()
-                    
-                    # 注册所有路由
-                    for route in routes._items:
-                        if isinstance(route, web.RouteDef):
-                            method = route.method.lower()
-                            path = f"/api{route.path}"
-                            try:
-                                new_router.add_route(method, path, route.handler)
-                                new_router.add_route(method, route.path, route.handler)
-                            except Exception as route_error:
-                                print(f'\033[93m[LG_HotReload] 注册路由失败: {route_error}\033[0m')
-                    
-                    # 添加静态路由
-                    try:
-                        for name, dir in nodes.EXTENSION_WEB_DIRS.items():
-                            new_router.add_static('/extensions/' + name, dir)
-                        custom_nodes_dir = Path(CUSTOM_NODE_ROOT[0])
-                        kjweb_path = custom_nodes_dir / "comfyui-kjnodes" / "kjweb_async"
-                        if kjweb_path.exists():
-                            new_router.add_static('/kjweb_async', kjweb_path.as_posix())
-                        new_router.add_static('/', PromptServer.instance.web_root)
-                    except Exception as e:
-                        print(f'\033[93m[LG_HotReload] 添加静态路由失败: {e}\033[0m')
-                    
-                    # 更新路由器
-                    app._router = new_router
-                    
+                    # 使用 asyncio.run 来同步调用异步函数
+                    success = asyncio.run(load_custom_node(module_path))
                 except Exception as e:
-                    # 确保在出错时恢复原始路由
-                    routes._items = original_routes
-                    raise e
+                    print(f'\033[91m[LG_HotReload] 调用 load_custom_node 失败: {str(e)}\033[0m')
+                    success = False
+
+                if not success:
+                    print(f'\033[91m[LG_HotReload] 加载模块失败: {module_name}\033[0m')
+                    return web.Response(text='FAILED')
+
+                # 确保模块被正确注册到sys.modules中
+                try:
+                    import importlib.util
+                    if os.path.isfile(module_path):
+                        # 处理单个.py文件
+                        spec = importlib.util.spec_from_file_location(module_name, module_path)
+                    else:
+                        # 处理模块目录
+                        init_path = os.path.join(module_path, '__init__.py')
+                        spec = importlib.util.spec_from_file_location(module_name, init_path)
+
+                    if spec:
+                        module = importlib.util.module_from_spec(spec)
+                        sys.modules[module_name] = module
+                        spec.loader.exec_module(module)
+                except Exception as e:
+                    print(f'\033[91m[LG_HotReload] 重新注册模块失败: {str(e)}\033[0m')
+                    traceback.print_exc()
+
+                # 确保节点被正确注册到全局的 NODE_CLASS_MAPPINGS 中
+                module = sys.modules.get(module_name)
+                if module and hasattr(module, 'NODE_CLASS_MAPPINGS'):
+                    # 先清理旧的节点映射
+                    for name in list(nodes.NODE_CLASS_MAPPINGS.keys()):
+                        if name in module.NODE_CLASS_MAPPINGS:
+                            del nodes.NODE_CLASS_MAPPINGS[name]
+
+                    # 重新注册节点
+                    for name, node_cls in module.NODE_CLASS_MAPPINGS.items():
+                        nodes.NODE_CLASS_MAPPINGS[name] = node_cls
+                        node_cls.RELATIVE_PYTHON_MODULE = f"custom_nodes.{module_name}"
+
+                    if hasattr(module, 'NODE_DISPLAY_NAME_MAPPINGS'):
+                        nodes.NODE_DISPLAY_NAME_MAPPINGS.update(module.NODE_DISPLAY_NAME_MAPPINGS)
 
                 # 更新节点类型
-                module = sys.modules.get(module_name)
                 if module and hasattr(module, 'NODE_CLASS_MAPPINGS'):
                     for key in module.NODE_CLASS_MAPPINGS.keys():
                         RELOADED_CLASS_TYPES[key] = 3
 
                 print(f'\033[92m[LG_HotReload] 模块重载成功: {module_name}\033[0m')
                 return web.Response(text='OK')
-                
+
             except Exception as e:
                 logging.error(f"Failed to reload module {module_name}: {e}")
                 traceback.print_exc()
@@ -319,29 +279,7 @@ class DebouncedHotReloader(FileSystemEventHandler):
             )
             self.__reload_timers[module_name] = timer
             timer.start()
-    def copy_web_files(self, module_name: str, web_dir: str):
-        """
-        将web目录下的文件复制到extensions目录
-        Args:
-            module_name: 模块名称
-            web_dir: web目录路径
-        """
-        try:
-            web_root = PromptServer.instance.web_root
-            extensions_dir = os.path.join(web_root, "extensions", module_name)
-            os.makedirs(extensions_dir, exist_ok=True)
-            for item in os.listdir(web_dir):
-                src = os.path.join(web_dir, item)
-                dst = os.path.join(extensions_dir, item)
-                if os.path.isfile(src):
-                    shutil.copy2(src, dst)
-                elif os.path.isdir(src):
-                    if os.path.exists(dst):
-                        shutil.rmtree(dst)
-                    shutil.copytree(src, dst)
-        except Exception as e:
-            print(f"\033[91m[LG_HotReload] Error copying files: {str(e)}\033[0m")
-            traceback.print_exc()
+
     def check_and_reload(self, module_name: str, scheduled_time: float, file_path: str):
         """
         检查时间戳并在需要时重新加载模块，同时通知前端刷新
@@ -412,12 +350,7 @@ class DebouncedHotReloader(FileSystemEventHandler):
                     update_message["data"]
                 )
 
-            # 处理web文件
-            module_path = os.path.join(CUSTOM_NODE_ROOT[0], module_name)
-            if module and hasattr(module, 'WEB_DIRECTORY'):
-                web_dir = os.path.join(module_path, module.WEB_DIRECTORY)
-                if os.path.exists(web_dir) and os.path.isdir(web_dir):
-                    self.copy_web_files(module_name, web_dir)
+
 
             self.__last_successful_reload[module_name] = time.time()
             print(f'\033[92m[LG_HotReload] Successfully reloaded module: {module_name}\033[0m')
@@ -476,37 +409,11 @@ def monkeypatch():
                 del self.cache_key_set.subcache_keys[key]
         return original_set_prompt(self, dynprompt, node_ids, is_changed_cache)
     caching.HierarchicalCache.set_prompt = set_prompt
-def cleanup_extensions_directory():
-    try:
-        web_root = PromptServer.instance.web_root
-        extensions_dir = os.path.join(web_root, "extensions")
-        if not os.path.exists(extensions_dir):
-            return
-        
-        custom_nodes_path = CUSTOM_NODE_ROOT[0]
-        custom_node_folders = set(os.listdir(custom_nodes_path))
-        
-        # 排除需要忽略的模块
-        folders_to_clean = custom_node_folders - EXCLUDE_MODULES
-        
-        for item in os.listdir(extensions_dir):
-            item_path = os.path.join(extensions_dir, item)
-            # 只清理非排除且存在于自定义节点目录的文件夹
-            if os.path.isdir(item_path) and item in folders_to_clean:
-                try:
-                    import shutil
-                    shutil.rmtree(item_path)
-                    print(f"\033[93m[LG_HotReload] Cleaned up duplicate extension directory: {item}\033[0m")
-                except Exception as e:
-                    print(f"\033[91m[LG_HotReload] Error cleaning up {item}: {str(e)}\033[0m")
-    except Exception as e:
-        print(f"\033[91m[LG_HotReload] Error during extensions cleanup: {str(e)}\033[0m")
-        traceback.print_exc()
+
 def setup():
     """Sets up the hot reload system."""
     logging.info("[LG_HotReload] Monkey patching comfy_execution.caching.BasicCache")
     monkeypatch()
-    cleanup_extensions_directory()
     hot_reloader_service = HotReloaderService(delay=DEBOUNCE_TIME)
     atexit.register(hot_reloader_service.stop)
     hot_reloader_service.start()
