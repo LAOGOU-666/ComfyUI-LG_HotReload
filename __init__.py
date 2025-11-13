@@ -1,5 +1,3 @@
-"""
-"""
 import os
 import sys
 import time
@@ -27,7 +25,7 @@ RELOADED_CLASS_TYPES: dict = {}
 CUSTOM_NODE_ROOT: list[str] = folder_paths.folder_names_and_paths["custom_nodes"][0]
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 def load_exclude_modules() -> set[str]:
-    """加载排除模块配置"""
+    
     try:
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
             config = json.load(f)
@@ -36,7 +34,7 @@ def load_exclude_modules() -> set[str]:
         print(f"\033[91m[LG_HotReload] Error loading config: {str(e)}\033[0m")
         return set()
 def save_exclude_modules(modules: set[str]):
-    """保存排除模块配置"""
+    
     try:
         with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
             json.dump({"exclude_modules": list(modules)}, f, indent=4)
@@ -71,6 +69,110 @@ async def get_all_modules(request):
         return web.json_response({"modules": modules})
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=500)
+@PromptServer.instance.routes.get("/extensions/{module_name}/{path:.*}")
+async def dynamic_extensions_handler(request):
+    """处理动态加载的插件的WEB_DIRECTORY文件访问"""
+    module_name = request.match_info['module_name']
+    file_path = request.match_info['path']
+    
+    # 从当前的EXTENSION_WEB_DIRS中查找
+    if module_name in nodes.EXTENSION_WEB_DIRS:
+        web_dir = nodes.EXTENSION_WEB_DIRS[module_name]
+        full_path = os.path.join(web_dir, file_path)
+        
+        if os.path.isfile(full_path):
+            return web.FileResponse(full_path)
+    
+    # 如果找不到，返回404
+    raise web.HTTPNotFound()
+
+# 存储动态路由映射
+DYNAMIC_API_ROUTES = {}
+
+def is_module_match(handler_module: str, module_name: str, sys_module_name: str = None) -> bool:
+    """
+    检查 handler 的模块名是否匹配目标模块
+
+    Args:
+        handler_module: handler.__module__ 的值
+        module_name: 模块名（如 "comfyui-clear-screen"）
+        sys_module_name: sys.modules 中的模块名（路径中的 "." 被替换为 "_x_"）
+
+    Returns:
+        是否匹配
+    """
+    if not handler_module:
+        return False
+
+    # 直接匹配
+    if module_name == handler_module:
+        return True
+
+    # 匹配 sys_module_name（如果提供）
+    if sys_module_name and sys_module_name == handler_module:
+        return True
+
+    # 匹配各种路径格式
+    patterns = [
+        f"custom_nodes.{module_name}",
+        f"custom_nodes\\{module_name}",
+        f"custom_nodes/{module_name}",
+        f"\\{module_name}",
+        f"/{module_name}",
+    ]
+
+    for pattern in patterns:
+        if handler_module.endswith(pattern) or pattern in handler_module:
+            return True
+
+    # 如果 sys_module_name 提供了，也检查它的各种格式
+    if sys_module_name:
+        if sys_module_name in handler_module or handler_module in sys_module_name:
+            return True
+
+    return False
+
+@PromptServer.instance.routes.get("/api/{path:.*}")
+async def dynamic_api_handler(request):
+    """动态处理热更新的API路由"""
+    path = "/" + request.match_info['path']  # 重构完整路径
+    method = request.method.upper()
+    
+    # 查找动态注册的处理器
+    route_key = f"{method}:{path}"
+    if route_key in DYNAMIC_API_ROUTES:
+        handler = DYNAMIC_API_ROUTES[route_key]
+        return await handler(request)
+    
+    # 如果没找到动态路由，让系统继续处理
+    raise web.HTTPNotFound()
+
+def register_module_routes(module_name, sys_module_name=None):
+    """注册模块的所有路由到动态路由表"""
+    # 清理旧路由 - 从 DYNAMIC_API_ROUTES（通过模块路径匹配）
+    keys_to_remove = []
+    for route_key, handler in DYNAMIC_API_ROUTES.items():
+        if hasattr(handler, '__module__'):
+            handler_module = handler.__module__
+            # 使用统一的匹配函数
+            if is_module_match(handler_module, module_name, sys_module_name):
+                keys_to_remove.append(route_key)
+
+    for key in keys_to_remove:
+        del DYNAMIC_API_ROUTES[key]
+
+    # 注册新路由到动态路由表
+    registered_count = 0
+    for route in PromptServer.instance.routes:
+        if hasattr(route, 'handler') and hasattr(route.handler, '__module__'):
+            handler_module = route.handler.__module__
+            # 使用统一的匹配函数
+            if is_module_match(handler_module, module_name, sys_module_name):
+                route_key = f"{route.method}:{route.path}"
+                DYNAMIC_API_ROUTES[route_key] = route.handler
+                registered_count += 1
+
+
 if (HOTRELOAD_EXCLUDE := os.getenv("HOTRELOAD_EXCLUDE", None)) is not None:
     EXCLUDE_MODULES.update(x for x in HOTRELOAD_EXCLUDE.split(',') if x)
 HOTRELOAD_OBSERVE_ONLY: set[str] = set(x for x in os.getenv("HOTRELOAD_OBSERVE_ONLY", '').split(',') if x)
@@ -80,11 +182,7 @@ try:
 except ValueError:
     DEBOUNCE_TIME = 1.0
 def hash_file(file_path: str) -> str:
-    """
-    Computes the MD5 hash of a file's contents.
-    :param file_path: The path to the file.
-    :return: The MD5 hash as a hexadecimal string, or None if an error occurs.
-    """
+
     try:
         with open(file_path, 'rb') as f:
             return hashlib.md5(f.read()).hexdigest()
@@ -92,11 +190,7 @@ def hash_file(file_path: str) -> str:
         logging.error(f"Error reading file {file_path}: {e}")
         return None
 def is_hidden_file_windows(file_path: str) -> bool:
-    """
-    Check if a given file or directory is hidden on Windows.
-    :param file_path: Path to the file or directory.
-    :return: True if the file or directory is hidden, False otherwise.
-    """
+
     try:
         import ctypes
         attribute = ctypes.windll.kernel32.GetFileAttributesW(file_path)
@@ -107,12 +201,7 @@ def is_hidden_file_windows(file_path: str) -> bool:
         logging.error(f"Error checking if file is hidden on Windows: {e}")
         return False
 def is_hidden_file(file_path: str) -> bool:
-    """
-    Check if a given file or any of its parent directories is hidden.
-    Works across all major operating systems (Windows, Linux, macOS).
-    :param file_path: Path to the file or directory to check.
-    :return: True if the file or any parent directory is hidden, False otherwise.
-    """
+
     file_path = os.path.abspath(file_path)
     if sys.platform.startswith('win'):
         while file_path and file_path != os.path.dirname(file_path):
@@ -126,12 +215,7 @@ def is_hidden_file(file_path: str) -> bool:
             file_path = os.path.dirname(file_path)
     return False
 def dfs(item_list: list, searches: set) -> bool:
-    """
-    Performs a depth-first search to find items in a list.
-    :param item_list: The list of items to search through.
-    :param searches: The set of search items to look for.
-    :return: True if any search item is found, False otherwise.
-    """
+
     for item in item_list:
         if isinstance(item, (frozenset, tuple)) and dfs(item, searches):
             return True
@@ -139,12 +223,9 @@ def dfs(item_list: list, searches: set) -> bool:
             return True
     return False
 class DebouncedHotReloader(FileSystemEventHandler):
-    """Hot reloader with debouncing mechanism to reload modules on file changes."""
+    
     def __init__(self, delay: float = 1.0):
-        """
-        Initialize the DebouncedHotReloader.
-        :param delay: Delay in seconds before reloading modules after detecting a change.
-        """
+
         super().__init__()
         self.__delay: float = delay
         self.__last_modified: defaultdict[str, float] = defaultdict(float)
@@ -158,6 +239,43 @@ class DebouncedHotReloader(FileSystemEventHandler):
         with self.__lock:
             try:
                 print(f'\n\033[94m[LG_HotReload] 开始重载模块: {module_name}\033[0m')
+
+                # 计算 sys_module_name（与 load_custom_node 中的逻辑一致）
+                # load_custom_node 会将路径中的 "." 替换为 "_x_"
+                module_path_for_sys = os.path.join(CUSTOM_NODE_ROOT[0], module_name)
+                sys_module_name = module_path_for_sys.replace(".", "_x_")
+                original_routes_count = len(PromptServer.instance.routes)
+                
+                # 收集需要保留的路由
+                routes_to_keep = []
+                routes_removed_count = 0
+                
+                for route in PromptServer.instance.routes:
+                    should_remove = False
+                    if hasattr(route, 'handler') and hasattr(route.handler, '__module__'):
+                        handler_module = route.handler.__module__
+                        # 使用统一的匹配函数
+                        if is_module_match(handler_module, module_name, sys_module_name):
+                            should_remove = True
+                            routes_removed_count += 1
+                            route_key = f"{route.method}:{route.path}"
+
+
+                    if not should_remove:
+                        routes_to_keep.append(route)
+                
+                # 重建路由表
+                if routes_removed_count > 0:
+                    # 由于RouteTableDef不支持直接删除路由，我们采用替换策略
+                    # 直接使用_items清理路由
+                    try:
+                        PromptServer.instance.routes._items.clear()
+                        PromptServer.instance.routes._items.extend(routes_to_keep)
+                    except Exception as e:
+                        print(f'\033[91m[LG_HotReload] 路由清理失败: {str(e)}\033[0m')
+                        traceback.print_exc()
+                else:
+                    print(f'\033[96m[LG_HotReload] 未发现需要清理的路由\033[0m')
 
                 module_path = os.path.join(CUSTOM_NODE_ROOT[0], module_name)
 
@@ -174,32 +292,102 @@ class DebouncedHotReloader(FileSystemEventHandler):
                         del sys.modules[name]
 
                 # 重新加载自定义节点
+                # 追踪load_custom_node前的路由数量
+                routes_before_load = len(PromptServer.instance.routes)
+
                 try:
                     # 使用 asyncio.run 来同步调用异步函数
                     success = asyncio.run(load_custom_node(module_path))
                 except Exception as e:
                     print(f'\033[91m[LG_HotReload] 调用 load_custom_node 失败: {str(e)}\033[0m')
                     success = False
+                
+                # 追踪load_custom_node后的路由数量
+                routes_after_load = len(PromptServer.instance.routes)
 
                 if not success:
                     print(f'\033[91m[LG_HotReload] 加载模块失败: {module_name}\033[0m')
                     return web.Response(text='FAILED')
 
+                # 关键步骤：同步新路由到 aiohttp 的 router
+                # 通过直接替换 handler 来实现热重载
+                try:
+                    # 获取新添加的路由
+                    new_routes_count = routes_after_load - routes_before_load
+                    if new_routes_count > 0 and hasattr(PromptServer.instance, 'app') and PromptServer.instance.app:
+                        new_routes = list(PromptServer.instance.routes)[-new_routes_count:]
+                        router = PromptServer.instance.app.router
+
+                        for route in new_routes:
+                            if hasattr(route, 'method') and hasattr(route, 'path') and hasattr(route, 'handler'):
+                                if hasattr(route.handler, '__module__'):
+                                    handler_module = route.handler.__module__
+                                    if is_module_match(handler_module, module_name, sys_module_name):
+                                        handler_id = id(route.handler)
+
+                                        # 查找并替换旧的 handler
+                                        for resource in list(router._resources):
+                                            resource_path = getattr(resource, '_path', None) or getattr(resource, 'canonical', None)
+
+                                            # 匹配路径（包括 /api 前缀的版本）
+                                            if resource_path and (resource_path == route.path or resource_path == f"/api{route.path}"):
+                                                for route_obj in resource:
+                                                    if hasattr(route_obj, 'handler') and hasattr(route_obj.handler, '__module__'):
+                                                        route_handler_module = route_obj.handler.__module__
+                                                        if is_module_match(route_handler_module, module_name, sys_module_name):
+                                                            # 直接替换 handler（保留路由缓存结构）
+                                                            if hasattr(route_obj, '_handler'):
+                                                                old_id = id(route_obj._handler)
+                                                                route_obj._handler = route.handler
+
+
+                except Exception as e:
+                    print(f'\033[91m[LG_HotReload] 路由同步失败: {str(e)}\033[0m')
+                    traceback.print_exc()
+
+
                 # 确保模块被正确注册到sys.modules中
                 try:
                     import importlib.util
+                    # 构建完整的模块名（包含custom_nodes前缀）
+                    full_module_name = f"custom_nodes.{module_name}"
+                    
                     if os.path.isfile(module_path):
                         # 处理单个.py文件
-                        spec = importlib.util.spec_from_file_location(module_name, module_path)
+                        spec = importlib.util.spec_from_file_location(full_module_name, module_path)
                     else:
                         # 处理模块目录
                         init_path = os.path.join(module_path, '__init__.py')
-                        spec = importlib.util.spec_from_file_location(module_name, init_path)
+                        spec = importlib.util.spec_from_file_location(full_module_name, init_path)
 
                     if spec:
-                        module = importlib.util.module_from_spec(spec)
-                        sys.modules[module_name] = module
-                        spec.loader.exec_module(module)
+                        # 追踪模块注册前的路由数量
+                        routes_before_register = len(PromptServer.instance.routes)
+
+                        # load_custom_node已经执行了模块代码，这里只需要注册到sys.modules
+                        # 获取已经加载的模块（通过load_custom_node加载）
+                        loaded_module = None
+                        
+                        # 尝试从sys.modules中找到已加载的模块
+                        for mod_name, mod in sys.modules.items():
+                            if (hasattr(mod, '__file__') and mod.__file__ and 
+                                mod.__file__.startswith(module_path)):
+                                loaded_module = mod
+                                break
+                        
+                        if loaded_module:
+                            # 使用已加载的模块，避免重复执行
+                            sys.modules[full_module_name] = loaded_module
+                            sys.modules[module_name] = loaded_module
+
+                        else:
+                            # 如果找不到已加载的模块，则正常加载（备用方案）
+                            module = importlib.util.module_from_spec(spec)
+                            sys.modules[full_module_name] = module
+                            sys.modules[module_name] = module
+                            spec.loader.exec_module(module)
+
+
                 except Exception as e:
                     print(f'\033[91m[LG_HotReload] 重新注册模块失败: {str(e)}\033[0m')
                     traceback.print_exc()
@@ -224,6 +412,8 @@ class DebouncedHotReloader(FileSystemEventHandler):
                 if module and hasattr(module, 'NODE_CLASS_MAPPINGS'):
                     for key in module.NODE_CLASS_MAPPINGS.keys():
                         RELOADED_CLASS_TYPES[key] = 3
+                # 重新注册API路由（到动态路由表）
+                register_module_routes(module_name, sys_module_name)
 
                 print(f'\033[92m[LG_HotReload] 模块重载成功: {module_name}\033[0m')
                 return web.Response(text='OK')
@@ -233,17 +423,17 @@ class DebouncedHotReloader(FileSystemEventHandler):
                 traceback.print_exc()
                 return web.Response(text='FAILED')
     def on_created(self, event):
-        """Handles file creation events."""
+        
         if event.is_directory:
             return
         self.handle_file_event(event.src_path)
     def on_deleted(self, event):
-        """Handles file deletion events."""
+        
         if event.is_directory:
             return
         self.handle_file_event(event.src_path)
     def handle_file_event(self, file_path: str):
-        """Common handler for file events (modified/created/deleted)."""
+        
         if not any(ext == '*' for ext in HOTRELOAD_EXTENSIONS):
             if not any(file_path.endswith(ext) for ext in HOTRELOAD_EXTENSIONS):
                 return
@@ -257,16 +447,12 @@ class DebouncedHotReloader(FileSystemEventHandler):
             return
         self.schedule_reload(root_dir, file_path)
     def on_modified(self, event):
-        """Handles file modification events."""
+        
         if event.is_directory:
             return
         self.handle_file_event(event.src_path)
     def schedule_reload(self, module_name: str, file_path: str):
-        """
-        Schedules a reload of the given module after a delay.
-        :param module_name: The name of the module to reload.
-        :param file_path: The path of the modified file.
-        """
+
         current_time: float = time.time()
         self.__last_modified[module_name] = current_time
         with self.__lock:
@@ -281,12 +467,7 @@ class DebouncedHotReloader(FileSystemEventHandler):
             timer.start()
 
     def check_and_reload(self, module_name: str, scheduled_time: float, file_path: str):
-        """
-        检查时间戳并在需要时重新加载模块，同时通知前端刷新
-        :param module_name: 要检查的模块名称
-        :param scheduled_time: 计划的重载时间
-        :param file_path: 修改的文件路径
-        """
+
         with self.__lock:
             if self.__last_modified[module_name] != scheduled_time:
                 return
@@ -361,34 +542,26 @@ class DebouncedHotReloader(FileSystemEventHandler):
             print(f'\033[91m[LG_HotReload] Error occurred: {e}\033[0m')
             traceback.print_exc()
 class HotReloaderService:
-    """Service to manage the hot reloading of modules."""
+    
     def __init__(self, delay: float = 1.0):
-        """
-        Initialize the HotReloaderService.
-        :param delay: Delay in seconds before reloading modules after detecting a change.
-        """
+
         self.__observer: Observer = None
         self.__reloader: DebouncedHotReloader = DebouncedHotReloader(delay)
     def start(self):
-        """Start observing for file changes."""
+        
         self.__observer = Observer()
         self.__observer.schedule(self.__reloader, CUSTOM_NODE_ROOT[0], recursive=True)
         self.__observer.start()
     def stop(self):
-        """Stop observing for file changes."""
+        
         if self.__observer:
             self.__observer.stop()
             self.__observer.join()
 def monkeypatch():
-    """Apply necessary monkey patches for hot reloading."""
+    
     original_set_prompt = caching.BasicCache.set_prompt
     def set_prompt(self, dynprompt, node_ids, is_changed_cache):
-        """
-        Custom set_prompt function to handle cache clearing for hot reloading.
-        :param dynprompt: Dynamic prompt to set.
-        :param node_ids: Node IDs to process.
-        :param is_changed_cache: Boolean flag indicating if cache has changed.
-        """
+
         if not hasattr(self, 'cache_key_set'):
             RELOADED_CLASS_TYPES.clear()
             return original_set_prompt(self, dynprompt, node_ids, is_changed_cache)
@@ -411,7 +584,7 @@ def monkeypatch():
     caching.HierarchicalCache.set_prompt = set_prompt
 
 def setup():
-    """Sets up the hot reload system."""
+    
     logging.info("[LG_HotReload] Monkey patching comfy_execution.caching.BasicCache")
     monkeypatch()
     hot_reloader_service = HotReloaderService(delay=DEBOUNCE_TIME)
