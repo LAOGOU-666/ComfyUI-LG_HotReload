@@ -74,16 +74,26 @@ async def dynamic_extensions_handler(request):
     """处理动态加载的插件的WEB_DIRECTORY文件访问"""
     module_name = request.match_info['module_name']
     file_path = request.match_info['path']
-    
-    # 从当前的EXTENSION_WEB_DIRS中查找
+
+    # 优先从 EXTENSION_WEB_DIRS 中查找（自定义节点，支持热更新）
     if module_name in nodes.EXTENSION_WEB_DIRS:
         web_dir = nodes.EXTENSION_WEB_DIRS[module_name]
         full_path = os.path.join(web_dir, file_path)
-        
+
         if os.path.isfile(full_path):
             return web.FileResponse(full_path)
-    
-    # 如果找不到，返回404
+
+    # 如果不在 EXTENSION_WEB_DIRS 中，尝试从 ComfyUI 前端包的 extensions 目录查找（系统扩展如 core）
+    # PromptServer.instance.web_root 指向前端包的静态文件目录
+    # 例如：E:\python3.11\Lib\site-packages\comfyui_frontend_package\static
+    if hasattr(PromptServer.instance, 'web_root') and PromptServer.instance.web_root:
+        web_root = PromptServer.instance.web_root
+        full_path = os.path.join(web_root, "extensions", module_name, file_path)
+
+        if os.path.isfile(full_path):
+            return web.FileResponse(full_path)
+
+    # 如果都找不到，返回404
     raise web.HTTPNotFound()
 
 # 存储动态路由映射
