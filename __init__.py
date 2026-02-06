@@ -10,7 +10,7 @@ from collections import defaultdict
 import traceback
 import asyncio
 
-from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver as Observer
 from watchdog.events import FileSystemEventHandler
 from aiohttp import web
 import folder_paths
