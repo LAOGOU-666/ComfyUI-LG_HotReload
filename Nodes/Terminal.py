@@ -114,4 +114,5 @@ for thread in threading.enumerate():
 timestamp = max(int(datetime.datetime.now().timestamp()), currentMaxStamp + 1)
 newThread = threading.Thread(target=LogFileChecker, name=CHECKER_THREAD_NAME, args=(timestamp,))
 newThread.__dict__["stamp"] = timestamp
+newThread.daemon = True
 newThread.start()
