@@ -342,6 +342,12 @@ class DebouncedHotReloader(FileSystemEventHandler):
                                             # 匹配路径（包括 /api 前缀的版本）
                                             if resource_path and (resource_path == route.path or resource_path == f"/api{route.path}"):
                                                 for route_obj in resource:
+                                                    # A resource holds one route per HTTP method (e.g. GET and POST on
+                                                    # the same path) - only swap the one this new route replaces.
+                                                    # aiohttp's add_get() also registers a HEAD route with the same handler.
+                                                    route_obj_method = getattr(route_obj, 'method', None)
+                                                    if route_obj_method != route.method and not (route_obj_method == 'HEAD' and route.method == 'GET'):
+                                                        continue
                                                     if hasattr(route_obj, 'handler') and hasattr(route_obj.handler, '__module__'):
                                                         route_handler_module = route_obj.handler.__module__
                                                         if is_module_match(route_handler_module, module_name, sys_module_name):
