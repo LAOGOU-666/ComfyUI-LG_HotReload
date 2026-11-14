@@ -1,5 +1,15 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+
+// frontend 1.59 把自定义设置的返回值放进右侧值槽，<tr> 在那里排版会乱。
+// 旧版设置窗口仍使用原来的表格行。
+function placeSettingRow(row) {
+    if (!document.querySelector('[data-dialog-key="global-settings"]')) return row;
+    const cell = row.querySelector("td:last-child") || row;
+    const panel = document.createElement("div");
+    while (cell.firstChild) panel.appendChild(cell.firstChild);
+    return panel;
+}
 app.registerExtension({
     name: "Comfy.HotReload",
     async setup() {
@@ -209,7 +219,7 @@ app.registerExtension({
 
                 cell.appendChild(button);
                 row.appendChild(cell);
-                return row;
+                return placeSettingRow(row);
             }
         });
 
@@ -234,7 +244,7 @@ app.registerExtension({
                 };
                 buttonCell.appendChild(button);
                 row.appendChild(buttonCell);
-                return row;
+                return placeSettingRow(row);
             }
         });
 
@@ -277,11 +287,14 @@ app.registerExtension({
             dialog.style.top = "50%";
             dialog.style.left = "50%";
             dialog.style.transform = "translate(-50%, -50%)";
-            dialog.style.backgroundColor = "#1a1a1a";
-            dialog.style.border = "1px solid #444";
             dialog.style.borderRadius = "8px";
             dialog.style.padding = "20px";
             dialog.style.zIndex = "10000";
+            // 设置窗打开时 body 是 pointer-events: none，挂在 body 上的弹窗要点击必须自己打开。
+            dialog.style.pointerEvents = "auto";
+            dialog.style.backgroundColor = "var(--background, #1a1a1a)";
+            dialog.style.color = "var(--foreground, #fff)";
+            dialog.style.border = "1px solid var(--border, #444)";
             dialog.style.minWidth = "400px";
             dialog.style.maxWidth = "600px";
             dialog.style.boxShadow = "0 4px 23px 0 rgba(0, 0, 0, 0.2)";
@@ -613,6 +626,7 @@ app.registerExtension({
             overlay.style.height = "100%";
             overlay.style.backgroundColor = "rgba(0, 0, 0, 0.5)";
             overlay.style.zIndex = "9999";
+            overlay.style.pointerEvents = "auto";
             document.body.appendChild(overlay);
             document.body.appendChild(dialog);
             input.focus();
